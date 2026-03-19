@@ -1,0 +1,27 @@
+## Adds a ClusterRole and a ClusterRoleBinding to enable listing nodes
+## to retrieve information on the available resources.
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Release.Name }}-nodels
+rules:
+  - apiGroups: [""]       # "" indicates the core API group
+    resources: ["nodes"]
+    verbs: ["get", "watch", "list"]
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Release.Name }}-jhub
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-jhub
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Release.Name }}-nodels
+  apiGroup: rbac.authorization.k8s.io
+

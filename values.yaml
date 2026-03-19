@@ -1,0 +1,98 @@
+# hostname is the FQDN without protocol and port, used for TLS termination
+hostname: 131.154.98.96.myip.cloud.infn.it
+
+# nfsServerAddress is the IP address of the NFS server, used for shared storage
+nfsServerAddress: 10.43.250.250
+
+# nfsServerHttpPort is the port on which the NFS server exposes its management APIs via HTTP
+nfsServerHttpPort: 3000
+
+# nfsServerAdminUser and nfsServerAdminPassword are the credentials for the NFS server admin user
+nfsServerAdminUser: 
+nfsServerAdminPassword: 
+
+# nfsUser and nfsGroup are the UID and GID that will be used for the JupyterHub data in NFS. 
+# A user with this UID/GID must be entitled to read/write in an NFS folder named {{ .Release.Name }}. 
+nfsUser: 188
+nfsGroup: 188 
+
+# jhubChartVersion is the version of the JupyterHub Helm chart to be used for deployment
+jhubChartVersion: 4.3.2
+
+# overrideJupyterHubConfig enables mounting a custom configuration file and spawn form template from /resources
+overrideJupyterHubConfig: false
+
+# Random strings used for JupyterHub secrets, can be generated with `openssl rand -hex 32`
+jhubProxySecretToken: 
+jhubCookieSecret:
+
+# IamClientId and IamClientSecret are the credentials for the IAM client used for OAuth authentication with the INFN Cloud IAM service.
+IamClientId:
+IamClientSecret:
+
+# OAuthName is the label to show in the JupyterHub login page for the OAuth provider, e.g. "INFN Cloud"
+OAuthName: "INFN Cloud"
+# OAuthEndpoint is the URL of the OAuth provider, used for user authentication and group membership retrieval
+OAuthEndpoint: https://iam.cloud.infn.it
+
+# jhubOAuthGroups is the space-separated list of IAM groups whose members are allowed to log in to JupyterHub, e.g. "users/ai-infn users/other-group"
+jhubOAuthGroups: users/ai-infn
+
+# jhubAdminGroups is the space-separated list of IAM groups whose members are allowed to log in to JupyterHub as administrators, e.g. "admins/ai-infn admins/other-group"
+# IMPORTANT: members of these groups gain privilege to access ALL other users' data. Users must have received a nominee from their Director to be eligible.
+jhubAdminGroups: admins/ai-infn
+
+# jhubPrivilegedUsers enable running user pods as privileged (may be needed to overcome AppArmor limitations)
+jhubPrivilegedUsers: "no"
+
+# jhubMetricApiKey is the API key for the JupyterHub metrics endpoint, used for monitoring and alerting
+jhubMetricApiKey:
+
+# jhubStartTimeout is the time in seconds to wait for a user pod to start before considering it failed, used for better handling of slow GPU initialization
+jhubStartTimeout: 120
+
+# jhubEnvsSetup is the path to a shell script that will be sourced in the user pods at startup, used for setting up environment variables or other initialization tasks
+jhubEnvsSetup: /envs/setup.sh
+
+# nfsMountPoint is the internal path where NFS is mounter in JupyterHub
+nfsMountPoint: /nfs-shared
+
+# CVMFS storage class for the CVMFS volume used by JupyterHub and user pods
+cvmfsStorageClass: cvmfs
+
+# nfsVolumePrefix is the prefix for the NFS volumes created for each user, e.g. "jhub-user" will create volumes named "jhub-user-username"
+nfsVolumePrefix: jhub-user
+
+# jhubDebug enables debug mode in JupyterHub, which may provide more verbose logging and error messages for troubleshooting purposes
+jhubDebug: true
+
+# Configuration of Virtual Kubelet dispatcher for batch processing
+vkdBranch: jfs
+vkdPort: 8000
+vkdEnabled: true
+vkdNamespace: vkd
+vkdAdminServiceAccount: vkd-admin
+vkdUserServiceAccount: vkd-user
+
+# jhubHomeName is the path of the home directory
+jhubHomeName: home
+
+# Default splash message displayed on the JupyterHub login page
+jhubDefaultSplashMessage: Welcome
+
+# Image for the JupyterHub deployment
+jhubImage: ghcr.io/landerlini/jupyter-docker-images/jhub-ai-infn
+jhubTag:   head
+
+# Default JupyterLab images available for users to choose from in the JupyterHub interface, mapping a human-readable name to a Docker image reference
+jhubDefaultJLabImages:
+  Stable: "harbor.cloud.infn.it/unpacked/jlab-ai-infn:2.1.2-ai1.5"
+  Dev: "ghcr.io/landerlini/jupyter-docker-images/jlab-ai-infn:head"
+
+# Special volumes to be mounted to privileged users
+jhubSystemVolumes: ['vkd', 'www']
+
+# JupyterHub cryptographic key for encrypting sensitive data in the database, can be generated with `openssl rand -hex 32`
+jhubCryptKey: 
+
+

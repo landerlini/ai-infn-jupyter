@@ -1,0 +1,145 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: {{ .Release.Name }}-jupyterhub
+spec:
+  repo: https://hub.jupyter.org/helm-chart/
+  chart: jupyterhub
+  targetNamespace: {{ .Release.Namespace }}
+  createNamespace: true
+  version: {{ .Values.jhubChartVersion }}
+  valuesContent: |-
+    fullnameOverride: {{ .Release.Name }}
+
+    scheduling:
+      userScheduler:
+        enabled: false
+      podPriority:
+        enabled: false
+      userPlaceholder:
+        enabled: false
+
+    cull:
+      enabled: true
+      timeout: 3600
+      every: 600
+
+    proxy:
+      chp:
+        networkPolicy:
+          enabled: false
+      secretToken: {{ .Values.jhubProxySecretToken | required "jhubProxySecretToken required" }}
+
+    singleuser:
+      networkPolicy:
+            enabled: false
+
+    hub:
+      baseUrl: {{ .Release.Name }}
+      labels:
+        chart-revision: {{ .Release.Revision | quote }}
+      image:
+        name: {{ .Values.jhubImage }}
+        tag: {{ .Values.jhubTag }}
+        pullPolicy: Always
+
+      serviceAccount:
+        name: {{ .Release.Name }}-jhub
+        create: true
+
+      cookieSecret: {{ .Values.jhubCookieSecret | required "jhubCookieSecret required" }}
+
+      networkPolicy:
+        enabled: false
+
+      db:
+        type: sqlite-pvc
+        upgrade: true
+        pvc:
+          accessModes:
+            - ReadWriteOnce
+          storage: 1Gi
+          storageClassName: {{ .Release.Name }}-sqlite
+
+
+      podSecurityContext:
+        fsGroup: {{ .Values.nfsGroup }}
+        runAsUser: {{ .Values.nfsUser }}
+        runAsGroup: {{ .Values.nfsGroup }}
+
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+          - ALL
+        runAsGroup: {{ .Values.nfsUser }}
+        runAsUser:  {{ .Values.nfsUser }}
+
+      extraVolumes:
+        - name: nfs
+          nfs:
+            server: {{ .Values.nfsServerAddress }}
+            path: "/"
+{{- if .Values.overrideJupyterHubConfig }}          
+        - name: custom-config
+          configMap:
+            name: {{ .Release.Name }}-jhub-config 
+{{- end }}
+
+      extraVolumeMounts:
+        - name: nfs
+          mountPath: {{ .Values.nfsMountPoint | default "/nfs-shared" }}
+{{- if .Values.overrideJupyterHubConfig }}
+        - name: custom-config
+          mountPath:  /usr/local/etc/jupyterhub/jupyterhub_config.d/customconfig.py
+          subPath: customconfig.py
+        - name: custom-config
+          mountPath:  /usr/local/etc/jupyterhub/jupyterhub_config.d/spawn_form.jinja2.html
+          subPath: spawn_form.jinja2.html
+{{- end }}
+
+      extraEnv:
+        LOGIN_SERVICE:      {{ .Values.OAuthName | required "OAuthName required" }}
+        OAUTH_CALLBACK_URL: https://{{ .Values.hostname | required "hostname required" }}/{{ .Release.Name }}/hub/oauth_callback
+        OAUTH_ENDPOINT:     {{ .Values.OAuthEndpoint | required "OAuthEndpoint required" }}
+        OAUTH_GROUPS:       {{ .Values.jhubOAuthGroups | required "jhubOAuthGroups required" }}
+        OAUTH_ADMIN_GROUPS: {{ .Values.jhubAdminGroups | required "jhubAdminGroups required" }}
+        IAM_CLIENT_ID:      {{ .Values.IamClientId | required "IamClientId required" }}
+        IAM_CLIENT_SECRET:  {{ .Values.IamClientSecret | required "IamClientSecret required" }}
+        START_TIMEOUT:      {{ .Values.jhubStartTimeout | default 20 | quote }}
+        NFS_MOUNT_POINT:    {{ .Values.nfsMountPoint | default "/nfs-shared" }}
+        NFS_SERVER_ADDRESS: {{ .Values.nfsServerAddress | required "nfsServerAddress required" }} 
+        NFS_SERVER_HTTP_PORT: {{ .Values.nfsServerHttpPort | default 3000 | quote }}
+        NFS_SERVER_ADMIN_USER: {{ .Values.nfsServerAdminUser | required "nfsServerAdminUser required" }}
+        NFS_SERVER_ADMIN_PASSWORD: {{ .Values.nfsServerAdminPassword | required "nfsServerAdminPassword required" }}
+        NFS_VOLUME_PREFIX: {{ .Values.nfsVolumePrefix | default .Release.Name }}
+        CVMFS_CLAIM_NAME:   {{ .Release.Name }}-cvmfs
+        PRIVILEGED_USERS:   {{ .Values.jhubPrivilegedUsers | default "no" | quote }}
+
+        STARTUP_SCRIPT: {{ .Values.jhubEnvsSetup | default "/envs/setup.sh" }} 
+        DEBUG: {{ .Values.jhubDebug | default true | quote }} 
+
+        HOME_NAME: {{ .Values.jhubHomeName | default "home" }}
+        JHUB_NAMESPACE: {{ .Release.Namespace }}
+        DEFAULT_SPLASH_MESSAGE: {{ .Values.jhubDefaultSplashMessage | default "Welcome" }}
+        DEFAULT_JLAB_IMAGES: {{ .Values.jhubDefaultJLabImages | required "jhubDefaultJLabImages required" | toJson | squote }}
+
+        # Metrics custom token
+        JUPYTERHUB_METRICS_API_KEY: {{ .Values.jhubMetricApiKey | required "jhubMetricApiKey required" }}
+        SYSTEM_VOLUMES: {{ .Values.jhubSystemVolumes | required "jhubSystemVolumes required" | toJson | squote }} 
+
+        JUPYTERHUB_CRYPT_KEY: {{ .Values.jhubCryptKey | required "jhubCryptKey required" }}
+        GPU_MODEL_DESCRIPTION: {{ ( .Files.Get "resources/gpu-known-models.yaml" | fromYaml).models | toJson | squote }}
+
+        # Virtual Kubelet Dispatcher configuration
+        ENABLE_VKD: "yes"
+        #        VKD_SIDECAR_IMAGE: "harbor.cloud.infn.it/testbed-dm/vkd-dev:v0.0"
+        VKD_SIDECAR_IMAGE: "landerlini/vk-dispatcher:alpine"
+        VKD_SIDECAR_NAME: vkd
+        VKD_SIDECAR_PULLPOLICY: Always
+        VKD_USER_SERVICE_ACCOUNT: {{ .Release.Name }}-{{ .Values.vkdUserServiceAccount | default "vkd-user" }}
+        VKD_ADMIN_SERVICE_ACCOUNT: {{ .Release.Name }}-{{ .Values.vkdAdminServiceAccount | default "vkd-admin" }}
+        VKD_ADMIN_USER_GROUP: vkd
+        VKD_PORT: {{ .Values.vkdPort | default 8000 | quote }}
+        VKD_IMAGE_BRANCH: {{ .Values.vkdBranch | default "main" }}
+        VKD_NAMESPACE: vkd

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-jhub-config
+data:
+  customconfig.py: |
+{{ .Files.Get "resources/customconfig.py" | indent 4 }}
+  spawn_form.jinja2.html: |
+{{ .Files.Get "resources/spawn_form.jinja2.html" | indent 4 }}
+

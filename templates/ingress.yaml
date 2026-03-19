@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/websocket-services: "{{ .Release.Name }}-proxy-public"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  name: {{ .Release.Name }}-jhub
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: {{ .Values.hostname }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /{{ .Release.Name }}
+        backend:
+          service:
+            name: {{ .Release.Name }}-proxy-public
+            port:
+              name: http
+
+
+
+

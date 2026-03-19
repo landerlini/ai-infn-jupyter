@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Release.Name }}-sqlite
+spec:
+  capacity:
+    storage: 1Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ .Release.Name }}-sqlite
+  nfs:
+    server: {{ .Values.nfsServerAddress }}
+    path: /{{ .Release.Name }}
+
+
+{{ if .Values.cvmfsStorageClass }}
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-cvmfs
+spec:
+  accessModes:
+  - ReadOnlyMany
+  resources:
+    requests:
+      # Volume size value has no effect and is ignored
+      # by the driver, but must be non-zero.
+      storage: 1
+  storageClassName: {{ .Values.cvmfsStorageClass | default "cvmfs" }}
+
+{{ end }}
+
+
+

@@ -1,0 +1,17 @@
+apiVersion: v2
+name: jhub-ai-infn
+description: GitOps configuration of jhub with ArgoCD for AI_INFN
+type: application
+
+version: 0.1.0
+
+appVersion: "4.1.3"
+
+maintainers:
+  - name: Lucio Anderlini
+    email: lucio.anderlini@fi.infn.it
+
+annotations:
+  category: "jupyter"
+  gitops-only: "true"
+
