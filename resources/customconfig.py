@@ -880,6 +880,7 @@ class InfnSpawner(KubeSpawner):
         HTTP_PREFIX=f"/user/{self.get_user_name()}/proxy/{VKD_PORT}",
         NAMESPACE=VKD_NAMESPACE,
         ORIGIN_NAMESPACE=JHUB_NAMESPACE,
+        ACCELERATOR_MODELS=json.dumps(GPU_MODEL_DESCRIPTION),
         )
 
       if JUICEFS_ENABLED and self.check_privilege('juicefs'):
