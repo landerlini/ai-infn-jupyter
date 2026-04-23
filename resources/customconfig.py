@@ -6,7 +6,7 @@ import json
 from pprint import pprint, pformat
 import logging
 from pathlib import Path
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from contextlib import asynccontextmanager
 import traceback
 import textwrap
@@ -880,7 +880,7 @@ class InfnSpawner(KubeSpawner):
         HTTP_PREFIX=f"/user/{self.get_user_name()}/proxy/{VKD_PORT}",
         NAMESPACE=VKD_NAMESPACE,
         ORIGIN_NAMESPACE=JHUB_NAMESPACE,
-        ACCELERATOR_MODELS=os.environ.get("GPU_MODEL_DESCRIPTION", "[]"),
+        ACCELERATOR_MODELS=b64encode(json.dumps(GPU_MODEL_DESCRIPTION).encode('utf-8')).decode('utf-8'),  
         )
 
       if JUICEFS_ENABLED and self.check_privilege('juicefs'):
