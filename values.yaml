@@ -20,7 +20,7 @@ nfsGroup: 188
 jhubChartVersion: 4.3.2
 
 # overrideJupyterHubConfig enables mounting a custom configuration file and spawn form template from /resources
-overrideJupyterHubConfig: false
+overrideJupyterHubConfig: true
 
 # Random strings used for JupyterHub secrets, can be generated with `openssl rand -hex 32`
 jhubProxySecretToken: 
