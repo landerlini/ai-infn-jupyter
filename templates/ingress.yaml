@@ -20,6 +20,10 @@ spec:
             name: {{ .Release.Name }}-proxy-public
             port:
               name: http
+  tls:
+  - hosts:
+    -  {{ .Values.hostname }}
+    secretName: jhub-legacy-jhub-tls              
 
 
 
