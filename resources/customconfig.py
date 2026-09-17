@@ -28,6 +28,7 @@ import subprocess
 import warnings
 import asyncio
 import shutil
+import copy
 import string
 
 from typing import Dict, Collection, Literal
@@ -515,6 +516,20 @@ class InfnSpawner(KubeSpawner):
 
       return False
 
+    @staticmethod
+    async def may_run_on_virtual_node(node_selector: Dict[str, str]):
+      """
+      True if any virtual (interLink) node matches node_selector, i.e. a session
+      pinned to it may be scheduled on a virtual node.
+      """
+      async with kubernetes_api() as k:
+        nodes = await k.list_node()
+
+      return any(
+        _node_matches(node, node_selector) and InfnSpawner.is_node_virtual(node, ())
+        for node in nodes.items
+      )
+
 
     @staticmethod
     async def get_accelerators(
@@ -627,6 +642,7 @@ class InfnSpawner(KubeSpawner):
         self.extra_resource_limits = {}
         self.tolerations = [t for t in self.tolerations if t.get('key') != 'virtual-node.interlink/no-schedule']
         self.node_affinity_required = []
+        self.start_as_user = False
 
         accelerator = "".join(formdata['gpu'])
         if accelerator in ["none"]:
@@ -680,6 +696,12 @@ class InfnSpawner(KubeSpawner):
             {"key": "virtual-node.interlink/no-schedule", "operator": "Exists", "effect": "NoSchedule"}
           ]
 
+          # On a virtual node the NFS volumes are mounted through the interLink
+          # mesh, and the NFS server squashes root coming from there: start.sh,
+          # running as root, cannot even enter the user's home. Such sessions
+          # start directly as the user (see start()).
+          self.start_as_user = await self.may_run_on_virtual_node(fpga_data['node_selector'])
+
           # Pin the pod to nodes of the selected FPGA model (several models may share the resource name)
           self.node_affinity_required = [
             _prefer_accelerator(fpga_data['node_selector'])['preference']
@@ -702,6 +724,55 @@ class InfnSpawner(KubeSpawner):
         logging.info("Affinity - preferred")
         logging.info(self.node_affinity_preferred)
         return options
+
+    async def start(self):
+        """
+        Set the container identity for this session, then start it.
+
+        Sessions normally start as root, so that start.sh can rename the user,
+        fix the UID and grant sudo before dropping privileges. Sessions that may
+        run on a virtual node start as the NFS user instead (start_as_user):
+        start.sh then skips the root-only setup, and GRANT_SUDO has no effect.
+
+        NB_UID, NB_GID and NB_GROUPS are only known here: setup_nfs_user sets
+        them in the authenticator's pre_spawn_start, after options_from_form.
+        """
+        container_config = copy.deepcopy(NOTEBOOK_CONTAINER_CONFIG)
+
+        # The spawner object is reused across server restarts: undo what a
+        # previous session running as the user changed
+        if not hasattr(self, '_configured_supplemental_gids'):
+          self._configured_supplemental_gids = list(self.supplemental_gids)
+        if getattr(self, '_home_set_for_user', False):
+          self.environment.pop('HOME', None)
+          self._home_set_for_user = False
+        self.supplemental_gids = list(self._configured_supplemental_gids)
+
+        if getattr(self, 'start_as_user', False):
+          username = self.get_user_name()
+          group_ids = [
+            int(entry.split(':')[0])
+            for entry in self.environment.get('NB_GROUPS', '').split(', ')
+            if entry
+          ]
+          container_config['securityContext'].update(
+            runAsUser=int(self.environment['NB_UID']),
+            runAsGroup=int(self.environment['NB_GID']),
+          )
+          # users (100) owns the image's writable paths; the project groups own
+          # the shared directories, which start.sh can no longer join as root.
+          self.supplemental_gids = sorted(set(self.supplemental_gids + [100] + group_ids))
+          # Without the root setup the passwd entry keeps /home/jovyan as home
+          self.environment['HOME'] = f"/{HOME_NAME}/{username}"
+          self._home_set_for_user = True
+          self.log.info(
+            f"Session of {username} may run on a virtual node: starting as "
+            f"{self.environment['NB_UID']}:{self.environment['NB_GID']} "
+            f"with supplemental groups {self.supplemental_gids}"
+          )
+
+        self.extra_container_config = container_config
+        return await super().start()
 
     #################################################################################
     #### SPLASH AND AUTHORIZATION
@@ -1038,7 +1109,8 @@ c.JupyterHub.hub_connect_ip = 'hub.jhub.svc.cluster.local'
 # c.KubeSpawner.notebook_dir = f"/{HOME_NAME}"
 # c.KubeSpawner.default_url = "/lab"
 
-c.KubeSpawner.extra_container_config = {
+# Copied and adjusted per session by InfnSpawner.start()
+NOTEBOOK_CONTAINER_CONFIG = {
     "imagePullPolicy": "Always",
     "securityContext": {
             "privileged": PRIVILEGED_USERS,
@@ -1050,6 +1122,7 @@ c.KubeSpawner.extra_container_config = {
             #        }
         }
 }
+c.KubeSpawner.extra_container_config = NOTEBOOK_CONTAINER_CONFIG
 
 c.KubeSpawner.http_timeout = START_TIMEOUT
 c.KubeSpawner.start_timeout = START_TIMEOUT
