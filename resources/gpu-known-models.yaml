@@ -103,9 +103,9 @@ models:
     short_name: u55c
     description: AMD-Xilinx U55c FPGA
     node_selector:
-      accelerator: u55c
+      xilinx-fpga-type: u55c
     memory_gb: null
     preference_weight: 1
     type: fpga
-    extended_resource: amd.com/xilinx_u55c_gen3x16_xdma_base_3-0
+    extended_resource: xilinx.com/fpga
 

@@ -30,7 +30,7 @@ import asyncio
 import shutil
 import string
 
-from typing import Dict, Collection
+from typing import Dict, Collection, Literal
 
 import jinja2
 import kubernetes_asyncio as k8s
@@ -464,6 +464,23 @@ def _prefer_accelerator(node_selectors: Dict[str, str], weight=1):
             )
         )
 
+def _node_matches(node, node_selectors: Dict[str, str]):
+    """
+    Internal. True if the node carries all the (non-empty) node_selectors labels.
+    """
+    labels = node.metadata.labels or {}
+    return len(node_selectors) > 0 and all(labels.get(k) == v for k, v in node_selectors.items())
+
+def _container_resource_count(container, resource_name: str):
+    """
+    Internal. Number of units of an extended resource requested by a container.
+    """
+    if container.resources.limits is not None:
+      return int(container.resources.limits.get(resource_name, 0))
+    elif container.resources.requests is not None:
+      return int(container.resources.requests.get(resource_name, 0))
+    return 0
+
 
 
 
@@ -526,7 +543,16 @@ class InfnSpawner(KubeSpawner):
 
       if status_key in ['allocatable', 'capacity']:
         for node in nodes.items:
-          if InfnSpawner.is_node_reserved(node, groups) or InfnSpawner.is_node_virtual(node, groups):
+          if InfnSpawner.is_node_reserved(node, groups):
+            continue
+
+          # FPGAs are matched through their node_selector and may be exposed by virtual nodes
+          node_resources = getattr(node.status, status_key, None) or {}
+          for return_item in return_list:
+            if return_item.get('type') == 'fpga' and _node_matches(node, return_item.get('node_selector', {})):
+              return_item['count'] += int(node_resources.get(return_item['extended_resource'], 0))
+
+          if InfnSpawner.is_node_virtual(node, groups):
             continue
 
           accelerator = node.metadata.labels.get("nvidia.com/gpu.product", node.metadata.labels.get("accelerator", "none"))
@@ -534,7 +560,7 @@ class InfnSpawner(KubeSpawner):
           if accelerator != "none":
             if hasattr(node.status, status_key):
               for return_item in return_list:
-                if accelerator == return_item['name']:
+                if accelerator == return_item['name'] and return_item.get('type') != 'fpga':
                   ext_res = return_item.get("extended_resource", default_extended_resource)
                   node_count = getattr(node.status, status_key).get(ext_res, 0)
                   return_item['count'] += int(node_count)
@@ -546,12 +572,21 @@ class InfnSpawner(KubeSpawner):
         node_dict = {node.metadata.name: node for node in nodes.items}
 
         for pod in pods.items:
-          node = node_dict[pod.spec.node_name]
+          node = node_dict.get(pod.spec.node_name)
+          if node is None: continue
           if InfnSpawner.is_node_reserved(node, groups): continue
+
+          for return_item in return_list:
+            if return_item.get('type') == 'fpga' and _node_matches(node, return_item.get('node_selector', {})):
+              return_item['count'] += sum(
+                _container_resource_count(container, return_item['extended_resource'])
+                for container in pod.spec.containers
+              )
+
           accelerator = node.metadata.labels.get("nvidia.com/gpu.product", node.metadata.labels.get("accelerator", "none"))
           if accelerator != "none":
             for return_item in return_list:
-              if accelerator == return_item['name']:
+              if accelerator == return_item['name'] and return_item.get('type') != 'fpga':
                 ext_res = return_item.get("extended_resource", default_extended_resource)
                 for container in pod.spec.containers:
                   if container.resources.limits is not None:
@@ -584,8 +619,14 @@ class InfnSpawner(KubeSpawner):
         self.mem_guarantee = "2G"
         self.mem_limit = memory
 
-        self.extra_resource_guarantees = {k: 1 for k in EXTENDED_RESOURCES}
-        self.extra_resource_limits =  {k: 1 for k in EXTENDED_RESOURCES}
+        #self.extra_resource_guarantees = {k: 1 for k in EXTENDED_RESOURCES}
+        #self.extra_resource_limits =  {k: 1 for k in EXTENDED_RESOURCES}
+
+        # The spawner object is reused across server restarts: drop accelerator settings from a previous session
+        self.extra_resource_guarantees = {}
+        self.extra_resource_limits = {}
+        self.tolerations = [t for t in self.tolerations if t.get('key') != 'virtual-node.interlink/no-schedule']
+        self.node_affinity_required = []
 
         accelerator = "".join(formdata['gpu'])
         if accelerator in ["none"]:
@@ -620,9 +661,33 @@ class InfnSpawner(KubeSpawner):
               )
           ]
 
-          # self.extra_pod_config.update ({
-          #         "runtimeClassName": "nvidia-cdi",
-          #     })
+          self.extra_pod_config.update ({ "runtimeClassName": "nvidia", })
+
+        elif accelerator.startswith('fpga:'):
+          options['fpga'] = True
+
+          _, model_fpga, n_fpgas = accelerator.split(":")
+          fpga_data = {a['name']: a for a in GPU_MODEL_DESCRIPTION if a.get('type') == 'fpga'}.get(model_fpga)
+          if fpga_data is None:
+            raise Exception(f"Failed retrieving data for FPGA model {model_fpga}")
+
+          ext_res = fpga_data.get('extended_resource', 'xilinx.com/fpga')
+          self.extra_resource_guarantees = {**self.extra_resource_guarantees, ext_res: n_fpgas}
+          self.extra_resource_limits = {**self.extra_resource_limits, ext_res: n_fpgas}
+
+          # FPGA nodes may be virtual (interLink) nodes
+          self.tolerations = self.tolerations + [
+            {"key": "virtual-node.interlink/no-schedule", "operator": "Exists", "effect": "NoSchedule"}
+          ]
+
+          # Pin the pod to nodes of the selected FPGA model (several models may share the resource name)
+          self.node_affinity_required = [
+            _prefer_accelerator(fpga_data['node_selector'])['preference']
+          ]
+          self.node_affinity_preferred = []
+
+          # No GPU runtime for FPGA sessions
+          self.extra_pod_config = {k: v for k, v in self.extra_pod_config.items() if k != 'runtimeClassName'}
 
         self.tolerations += [
             {"key": "reserved", "operator": "Equal", "value": g, "effect": "NoSchedule"}
@@ -977,12 +1042,12 @@ c.KubeSpawner.extra_container_config = {
     "imagePullPolicy": "Always",
     "securityContext": {
             "privileged": PRIVILEGED_USERS,
-            "allowPrivilegeEscalation": True,
+            #"allowPrivilegeEscalation": True,
             "runAsUser": 0,
-            "seccompProfile": {"type": "Unconfined"},
-            "capabilities": {
-                        "add": ["SYS_ADMIN", "CAP_CHROOT", "CAP_DAC_READ_SEARCH"]
-                    }
+            #"seccompProfile": {"type": "Unconfined"},
+            #"capabilities": {
+            #            "add": ["SYS_ADMIN", "CAP_CHROOT", "CAP_DAC_READ_SEARCH"]
+            #        }
         }
 }
 
