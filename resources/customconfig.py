@@ -761,7 +761,10 @@ class InfnSpawner(KubeSpawner):
           )
           # users (100) owns the image's writable paths; the project groups own
           # the shared directories, which start.sh can no longer join as root.
-          self.supplemental_gids = sorted(set(self.supplemental_gids + [100] + group_ids))
+          # root (0) can write /etc/passwd, where start.sh adds the entry naming
+          # NB_UID: without it the uid has no name ("I have no name!"). It is
+          # only a group, and the NFS server squashes gid 0 anyway.
+          self.supplemental_gids = sorted(set(self.supplemental_gids + [0, 100] + group_ids))
           # Without the root setup the passwd entry keeps /home/jovyan as home
           self.environment['HOME'] = f"/{HOME_NAME}/{username}"
           self._home_set_for_user = True
