@@ -38,6 +38,8 @@ spec:
       baseUrl: {{ .Release.Name }}
       labels:
         chart-revision: {{ .Release.Revision | quote }}
+      annotations:
+        checksum/jhub-config: {{ include (print $.Template.BasePath "/customconfig.yaml") . | sha256sum }}
       image:
         name: {{ .Values.jhubImage }}
         tag: {{ .Values.jhubTag }}
