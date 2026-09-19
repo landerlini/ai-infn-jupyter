@@ -822,7 +822,7 @@ class InfnSpawner(KubeSpawner):
     @staticmethod
     def initialize_nfs_volumes():
         if NFS_SERVER_ADDRESS is not None:
-          os.chmod(NFS_MOUNT_POINT/NFS_VOLUME_PREFIX, 0o700)
+          os.chmod(NFS_MOUNT_POINT/NFS_VOLUME_PREFIX, 0o711)
           for name in ["system/envs", "shared/public"] + [f'system/{volume}' for volume in SYSTEM_VOLUMES]:
             os.makedirs(NFS_MOUNT_POINT/NFS_VOLUME_PREFIX/name, exist_ok=True)
             os.chmod(NFS_MOUNT_POINT/NFS_VOLUME_PREFIX/name, 0o2777)
