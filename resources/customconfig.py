@@ -851,7 +851,7 @@ class InfnSpawner(KubeSpawner):
 
     def nfs_volume(self, name):
       return dict(
-        name=name, 
+        name=name.replace("/", "-").replace(".", "-"),
         nfs=dict(
           server=NFS_SERVER_ADDRESS, 
           path=f"/{NFS_VOLUME_PREFIX}/{name}"
@@ -860,7 +860,7 @@ class InfnSpawner(KubeSpawner):
 
     def nfs_mount(self, name, path, protected=False):
       return dict(
-        name=name, 
+        name=name.replace("/", "-").replace(".", "-"),
         mountPath=path,
     )
 
@@ -894,9 +894,9 @@ class InfnSpawner(KubeSpawner):
 
       if NFS_SERVER_ADDRESS is not None:
         volumes += [
-          self.nfs_volume(f'user-{username}'),
-          self.nfs_volume(f'public'),
-          self.nfs_volume(f'envs'),
+          self.nfs_volume(f'{username}'),
+          self.nfs_volume(f'shared/public'),
+          self.nfs_volume(f'system/envs'),
           ]
 
         if self.check_privilege('juicefs'):
@@ -904,10 +904,10 @@ class InfnSpawner(KubeSpawner):
 
         for volume in SYSTEM_VOLUMES:
           if self.check_privilege(volume):
-            volumes.append(self.nfs_volume(volume))
+            volumes.append(self.nfs_volume(f'system/{volume}'))
 
         for group in self.get_user_groups():
-          volumes += [self.nfs_volume(f'shared-{group}')]
+          volumes += [self.nfs_volume(f'shared/{group}')]
 
         if CVMFS_CLAIM_NAME != "":
             volumes.append(dict(
@@ -928,20 +928,20 @@ class InfnSpawner(KubeSpawner):
 
       if NFS_SERVER_ADDRESS is not None:
         volumes += [
-          {"name": f"user-{username}", "mountPath": f"/{HOME_NAME}/{username}"},
-          {"name": "public", "mountPath": f"/{HOME_NAME}/shared/public"},
-          {"name": "envs", "mountPath": "/envs", "readOnly": not self.check_privilege("envs")},
+          {"name": f"{username}", "mountPath": f"/{HOME_NAME}/{username}"},
+          {"name": "shared-public", "mountPath": f"/{HOME_NAME}/shared/public"},
+          {"name": "system-envs", "mountPath": "/envs", "readOnly": not self.check_privilege("envs")},
           ]
 
         if JUICEFS_ENABLED and self.check_privilege('juicefs'):
-          volumes.append(self.jfs_mount(f"jfs-user-{username}", "/home/jfs/private"))
+          volumes.append(self.jfs_mount(f"jfs-user-{username}", f"/home/jfs/private/{username}"))
 
         for volume in SYSTEM_VOLUMES:
           if self.check_privilege(volume):
-            volumes += [{"name": volume, "mountPath": f"/{HOME_NAME}/system/{volume}"}]
+            volumes += [{"name": f'system/{volume}', "mountPath": f"/{HOME_NAME}/system/{volume}"}]
 
         for group in self.get_user_groups():
-          volumes += [{"name": f"shared-{group}", "mountPath": f"/{HOME_NAME}/shared/{group}", "readOnly": False}]
+          volumes += [{"name": f"shared/{group}", "mountPath": f"/{HOME_NAME}/shared/{group}", "readOnly": False}]
           if JUICEFS_ENABLED and self.check_privilege('juicefs'):
             volumes.append(self.jfs_mount(f"jfs-shared-{group}", f"/home/jfs/shared/{group}"))
 
