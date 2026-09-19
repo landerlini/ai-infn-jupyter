@@ -938,10 +938,10 @@ class InfnSpawner(KubeSpawner):
 
         for volume in SYSTEM_VOLUMES:
           if self.check_privilege(volume):
-            volumes += [{"name": f'system/{volume}', "mountPath": f"/{HOME_NAME}/system/{volume}"}]
+            volumes += [{"name": f'system-{volume}', "mountPath": f"/{HOME_NAME}/system/{volume}"}]
 
         for group in self.get_user_groups():
-          volumes += [{"name": f"shared/{group}", "mountPath": f"/{HOME_NAME}/shared/{group}", "readOnly": False}]
+          volumes += [{"name": f"shared-{group}", "mountPath": f"/{HOME_NAME}/shared/{group}", "readOnly": False}]
           if JUICEFS_ENABLED and self.check_privilege('juicefs'):
             volumes.append(self.jfs_mount(f"jfs-shared-{group}", f"/home/jfs/shared/{group}"))
 
