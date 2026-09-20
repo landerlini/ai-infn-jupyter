@@ -929,6 +929,11 @@ class InfnSpawner(KubeSpawner):
 
           logging.info(f"{self.get_user_name()} has access to cluster {cluster_name} in namespace {cluster_namespace}.")
 
+          # Notice! The secret must be made available in the namespace where the notebook is spawned.
+          # For example,
+          # $ k get secret -n slurm slurm-<cluster_name>-auth-slurm -o yaml \ 
+          #   | sed '/namespace:/d;/resourceVersion:/d;/uid:/d;/creationTimestamp:/d' \
+          #   | k apply -n <namespace> -
           volumes.append(
             dict(
               name='slurm-config',
@@ -938,7 +943,6 @@ class InfnSpawner(KubeSpawner):
                   dict(
                     secret=dict(
                       name=f"slurm-{cluster_name}-auth-slurm",
-                      namespace=cluster_namespace,
                       keys=[dict(key='slurm.key', path='slurm.key')]
                     )
                   )
