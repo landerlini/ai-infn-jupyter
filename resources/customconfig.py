@@ -243,6 +243,7 @@ def setup_nfs_user(spawner):
         return (500, "Invalid response from NFS server")
 
 def setup_slurm_environment(spawner):
+  logging.info(f"Setting up SLURM environment for user {spawner.get_user_name()}. Server: {SLURM_CONF_SERVER}")
   spawner.environment.update(
       dict(
         SACKD_ARGS="--conf-server " + SLURM_CONF_SERVER ,
