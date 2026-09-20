@@ -242,6 +242,14 @@ def setup_nfs_user(spawner):
     except ValueError:
         return (500, "Invalid response from NFS server")
 
+def setup_slurm_environment(spawner):
+  spawner.environment.update(
+      dict(
+        SACKD_ARGS="--conf-server " + SLURM_CONF_SERVER ,
+        )
+    )
+
+
 
 class ConfigurableGoogleAuthenticator(GoogleOAuthenticator):
     """
@@ -311,7 +319,10 @@ class ConfigurableGoogleAuthenticator(GoogleOAuthenticator):
         setup_res = setup_nfs_user(spawner)
         if setup_res[0] != 200:
             self.throw_http(*setup_res)
-    
+
+        if spawner.check_privilege('slurm'):
+            setup_slurm_environment(spawner)
+
     def user_info_to_username(self, user_info):
         username = super().user_info_to_username(user_info)
 
@@ -1078,13 +1089,6 @@ class InfnSpawner(KubeSpawner):
               JUICEFS_S3_SECRET_KEY=JUICEFS_S3_SECRET_KEY,
               JUICEFS_METADATA_DB=JUICEFS_METADATA_DB,
               JUICEFS_FILESYSTEM_NAME=JUICEFS_FILESYSTEM_NAME,
-              )
-          )
-
-      if self.check_privilege('slurm'):
-        environment.update(
-            dict(
-              SLURM_SACKED_ARGS="--conf-server " + SLURM_CONF_SERVER ,
               )
           )
 
