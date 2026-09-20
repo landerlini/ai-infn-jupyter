@@ -400,6 +400,9 @@ class IamAuthenticator(GenericOAuthenticator):
         if setup_res[0] != 200:
             self.throw_http(*setup_res)
 
+        if spawner.check_privilege('slurm'):
+            setup_slurm_environment(spawner)
+
         # define some environment variables from auth_state
         self.log.info(auth_state)
         spawner.environment['IAM_SERVER'] = OAUTH_ENDPOINT
