@@ -154,6 +154,9 @@ AVAILABLE_CPU = json.loads(os.environ.get("AVAILABLE_CPU", '[1, 2]'))
 AVAILABLE_MEMORY_GB = json.loads(os.environ.get("AVAILABLE_MEMORY_GB", '[4, 8]'))
 EXTENDED_RESOURCES = json.loads(os.environ.get("EXTENDED_RESOURCES", '["ai.infn.it/fuse"]'))
 
+## Slurm
+SLURM_CONF_SERVER = os.environ.get("SLURM_CONF_SERVER", "slurm-controller.slurm:6817")
+
 
 if "JUPYTERHUB_CRYPT_KEY" not in os.environ.keys():
   raise Exception(
@@ -1075,6 +1078,13 @@ class InfnSpawner(KubeSpawner):
               JUICEFS_S3_SECRET_KEY=JUICEFS_S3_SECRET_KEY,
               JUICEFS_METADATA_DB=JUICEFS_METADATA_DB,
               JUICEFS_FILESYSTEM_NAME=JUICEFS_FILESYSTEM_NAME,
+              )
+          )
+
+      if self.check_privilege('slurm'):
+        environment.update(
+            dict(
+              SLURM_SACKED_ARGS="--conf-server " + SLURM_CONF_SERVER ,
               )
           )
 

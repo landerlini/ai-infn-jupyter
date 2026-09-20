@@ -145,3 +145,6 @@ spec:
         VKD_PORT: {{ .Values.vkdPort | default 8000 | quote }}
         VKD_IMAGE_BRANCH: {{ .Values.vkdBranch | default "main" }}
         VKD_NAMESPACE: vkd
+
+        # Slurm configuration
+        SLURM_CONF_SERVER: {{ .Values.slurmConfServer | default "slurm-controller.slurm:6817" }}
