@@ -917,6 +917,36 @@ class InfnSpawner(KubeSpawner):
                 persistentVolumeClaim={'claimName': CVMFS_CLAIM_NAME}
                 ))
 
+        if self.check_privilege('slurm'):
+          slurm_groups = [g for g in self.user.groups if g.name == 'slurm'] 
+          assert len(slurm_groups) >= 1, "User is both member and non-member. Check logics."
+          cluster_name_namespace = slurm_groups[0].properties.get('cluster').split('.')
+          if len(cluster_name_namespace) == 1:
+            cluster_name = cluster_name_namespace[0]
+            cluster_namespace = "slurm"
+          else:
+            cluster_name, cluster_namespace, *_ = cluster_name_namespace
+
+          logging.info(f"{self.get_user_name()} has access to cluster {cluster_name} in namespace {cluster_namespace}.")
+
+          volumes.append(
+            dict(
+              name='slurm-config',
+              projected=dict(
+                defaultMode=0o400,
+                sources=[
+                  dict(
+                    secret=dict(
+                      name=f"slurm-{cluster_name}-auth-slurm",
+                      namespace=cluster_namespace,
+                      keys=[dict(key='slurm.key', path='slurm.key')]
+                    )
+                  )
+                ]
+              )
+            )
+           )
+
       return volumes
 
     @property 
@@ -953,6 +983,15 @@ class InfnSpawner(KubeSpawner):
                 mountPath='/cvmfs',
                 mountPropagation='HostToContainer',
                 ))
+
+        if self.check_privilege('slurm'):
+          volumes.append(
+            dict(
+              name='slurm-config',
+              mountPath='/mnt/slurm',
+              readOnly=True,
+            )
+           )
 
       return volumes
 
