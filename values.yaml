@@ -78,7 +78,7 @@ vkdUserServiceAccount: vkd-user
 jhubHomeName: home
 
 # Default splash message displayed on the JupyterHub login page
-jhubDefaultSplashMessage: Welcome
+jhubDefaultSplashMessage: Welcome to JupyterHub
 
 # Image for the JupyterHub deployment
 jhubImage: ghcr.io/landerlini/jupyter-docker-images/jhub-ai-infn
