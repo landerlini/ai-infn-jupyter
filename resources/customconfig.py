@@ -743,10 +743,12 @@ class InfnSpawner(KubeSpawner):
         # previous session running as the user changed
         if not hasattr(self, '_configured_supplemental_gids'):
           self._configured_supplemental_gids = list(self.supplemental_gids)
+          self._configured_extra_annotations = dict(self.extra_annotations)
         if getattr(self, '_home_set_for_user', False):
           self.environment.pop('HOME', None)
           self._home_set_for_user = False
         self.supplemental_gids = list(self._configured_supplemental_gids)
+        self.extra_annotations = dict(self._configured_extra_annotations)
 
         if getattr(self, 'start_as_user', False):
           username = self.get_user_name()
@@ -768,6 +770,10 @@ class InfnSpawner(KubeSpawner):
           # Without the root setup the passwd entry keeps /home/jovyan as home
           self.environment['HOME'] = f"/{HOME_NAME}/{username}"
           self._home_set_for_user = True
+          # MTU of the interLink mesh (WireGuard) interface. The tunnel carries
+          # WireGuard in a WebSocket over TCP, so the path MTU does not limit it:
+          # larger packets mean fewer of them through the user-space hops.
+          self.extra_annotations['interlink.eu/wg-mtu'] = str(VIRTUAL_NODE_WG_MTU)
           self.log.info(
             f"Session of {username} may run on a virtual node: starting as "
             f"{self.environment['NB_UID']}:{self.environment['NB_GID']} "
@@ -1111,6 +1117,10 @@ c.KubeSpawner.extra_pod_config = {
 c.JupyterHub.hub_connect_ip = 'hub.jhub.svc.cluster.local'
 # c.KubeSpawner.notebook_dir = f"/{HOME_NAME}"
 # c.KubeSpawner.default_url = "/lab"
+
+# MTU of the WireGuard mesh for sessions on interLink virtual nodes (the
+# virtual kubelet defaults to 1280). The gateway side has to use the same value.
+VIRTUAL_NODE_WG_MTU = int(os.environ.get("VIRTUAL_NODE_WG_MTU", "1420"))
 
 # Copied and adjusted per session by InfnSpawner.start()
 NOTEBOOK_CONTAINER_CONFIG = {
