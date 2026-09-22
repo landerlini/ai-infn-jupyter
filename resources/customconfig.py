@@ -154,6 +154,9 @@ AVAILABLE_CPU = json.loads(os.environ.get("AVAILABLE_CPU", '[1, 2]'))
 AVAILABLE_MEMORY_GB = json.loads(os.environ.get("AVAILABLE_MEMORY_GB", '[4, 8]'))
 EXTENDED_RESOURCES = json.loads(os.environ.get("EXTENDED_RESOURCES", '["ai.infn.it/fuse"]'))
 
+## Slurm
+SLURM_CONF_SERVER = os.environ.get("SLURM_CONF_SERVER", "slurm-controller.slurm:6817")
+
 
 if "JUPYTERHUB_CRYPT_KEY" not in os.environ.keys():
   raise Exception(
@@ -239,6 +242,15 @@ def setup_nfs_user(spawner):
     except ValueError:
         return (500, "Invalid response from NFS server")
 
+def setup_slurm_environment(spawner):
+  logging.info(f"Setting up SLURM environment for user {spawner.get_user_name()}. Server: {SLURM_CONF_SERVER}")
+  spawner.environment.update(
+      dict(
+        SACKD_ARGS="--conf-server " + SLURM_CONF_SERVER ,
+        )
+    )
+
+
 
 class ConfigurableGoogleAuthenticator(GoogleOAuthenticator):
     """
@@ -308,7 +320,10 @@ class ConfigurableGoogleAuthenticator(GoogleOAuthenticator):
         setup_res = setup_nfs_user(spawner)
         if setup_res[0] != 200:
             self.throw_http(*setup_res)
-    
+
+        if spawner.check_privilege('slurm'):
+            setup_slurm_environment(spawner)
+
     def user_info_to_username(self, user_info):
         username = super().user_info_to_username(user_info)
 
@@ -384,6 +399,9 @@ class IamAuthenticator(GenericOAuthenticator):
         setup_res = setup_nfs_user(spawner)
         if setup_res[0] != 200:
             self.throw_http(*setup_res)
+
+        if spawner.check_privilege('slurm'):
+            setup_slurm_environment(spawner)
 
         # define some environment variables from auth_state
         self.log.info(auth_state)
@@ -828,8 +846,10 @@ class InfnSpawner(KubeSpawner):
     @staticmethod
     def initialize_nfs_volumes():
         if NFS_SERVER_ADDRESS is not None:
-          for name in ["envs", "public", *SYSTEM_VOLUMES]:
+          os.chmod(NFS_MOUNT_POINT/NFS_VOLUME_PREFIX, 0o711)
+          for name in ["system/envs", "shared/public"] + [f'system/{volume}' for volume in SYSTEM_VOLUMES]:
             os.makedirs(NFS_MOUNT_POINT/NFS_VOLUME_PREFIX/name, exist_ok=True)
+            os.chmod(NFS_MOUNT_POINT/NFS_VOLUME_PREFIX/name, 0o2777)
 
           setup_filepath = Path(
             f"{NFS_MOUNT_POINT}/{NFS_VOLUME_PREFIX}/{STARTUP_SCRIPT}".replace("//", "/").replace("//", "/")
@@ -857,7 +877,7 @@ class InfnSpawner(KubeSpawner):
 
     def nfs_volume(self, name):
       return dict(
-        name=name, 
+        name=name.replace("/", "-").replace(".", "-"),
         nfs=dict(
           server=NFS_SERVER_ADDRESS, 
           path=f"/{NFS_VOLUME_PREFIX}/{name}"
@@ -866,7 +886,7 @@ class InfnSpawner(KubeSpawner):
 
     def nfs_mount(self, name, path, protected=False):
       return dict(
-        name=name, 
+        name=name.replace("/", "-").replace(".", "-"),
         mountPath=path,
     )
 
@@ -900,9 +920,9 @@ class InfnSpawner(KubeSpawner):
 
       if NFS_SERVER_ADDRESS is not None:
         volumes += [
-          self.nfs_volume(f'user-{username}'),
-          self.nfs_volume(f'public'),
-          self.nfs_volume(f'envs'),
+          self.nfs_volume(f'{username}'),
+          self.nfs_volume(f'shared/public'),
+          self.nfs_volume(f'system/envs'),
           ]
 
         if self.check_privilege('juicefs'):
@@ -910,16 +930,50 @@ class InfnSpawner(KubeSpawner):
 
         for volume in SYSTEM_VOLUMES:
           if self.check_privilege(volume):
-            volumes.append(self.nfs_volume(volume))
+            volumes.append(self.nfs_volume(f'system/{volume}'))
 
         for group in self.get_user_groups():
-          volumes += [self.nfs_volume(f'shared-{group}')]
+          volumes += [self.nfs_volume(f'shared/{group}')]
 
         if CVMFS_CLAIM_NAME != "":
             volumes.append(dict(
                 name='public-cvmfs',
                 persistentVolumeClaim={'claimName': CVMFS_CLAIM_NAME}
                 ))
+
+        if self.check_privilege('slurm'):
+          slurm_groups = [g for g in self.user.groups if g.name == 'slurm'] 
+          assert len(slurm_groups) >= 1, "User is both member and non-member. Check logics."
+          cluster_name_namespace = slurm_groups[0].properties.get('cluster').split('.')
+          if len(cluster_name_namespace) == 1:
+            cluster_name = cluster_name_namespace[0]
+            cluster_namespace = "slurm"
+          else:
+            cluster_name, cluster_namespace, *_ = cluster_name_namespace
+
+          logging.info(f"{self.get_user_name()} has access to cluster {cluster_name} in namespace {cluster_namespace}.")
+
+          # Notice! The secret must be made available in the namespace where the notebook is spawned.
+          # For example,
+          # $ k get secret -n slurm slurm-<cluster_name>-auth-slurm -o yaml \ 
+          #   | sed '/namespace:/d;/resourceVersion:/d;/uid:/d;/creationTimestamp:/d' \
+          #   | k apply -n <namespace> -
+          volumes.append(
+            dict(
+              name='slurm-config',
+              projected=dict(
+                defaultMode=0o400,
+                sources=[
+                  dict(
+                    secret=dict(
+                      name=f"slurm-{cluster_name}-auth-slurm",
+                      keys=[dict(key='slurm.key', path='slurm.key')]
+                    )
+                  )
+                ]
+              )
+            )
+           )
 
       return volumes
 
@@ -934,17 +988,17 @@ class InfnSpawner(KubeSpawner):
 
       if NFS_SERVER_ADDRESS is not None:
         volumes += [
-          {"name": f"user-{username}", "mountPath": f"/{HOME_NAME}/{username}"},
-          {"name": "public", "mountPath": f"/{HOME_NAME}/shared/public"},
-          {"name": "envs", "mountPath": "/envs", "readOnly": not self.check_privilege("envs")},
+          {"name": f"{username}", "mountPath": f"/{HOME_NAME}/{username}"},
+          {"name": "shared-public", "mountPath": f"/{HOME_NAME}/shared/public"},
+          {"name": "system-envs", "mountPath": "/envs", "readOnly": not self.check_privilege("envs")},
           ]
 
         if JUICEFS_ENABLED and self.check_privilege('juicefs'):
-          volumes.append(self.jfs_mount(f"jfs-user-{username}", "/home/jfs/private"))
+          volumes.append(self.jfs_mount(f"jfs-user-{username}", f"/home/jfs/private/{username}"))
 
         for volume in SYSTEM_VOLUMES:
           if self.check_privilege(volume):
-            volumes += [{"name": volume, "mountPath": f"/{HOME_NAME}/system/{volume}"}]
+            volumes += [{"name": f'system-{volume}', "mountPath": f"/{HOME_NAME}/system/{volume}"}]
 
         for group in self.get_user_groups():
           volumes += [{"name": f"shared-{group}", "mountPath": f"/{HOME_NAME}/shared/{group}", "readOnly": False}]
@@ -957,6 +1011,15 @@ class InfnSpawner(KubeSpawner):
                 mountPath='/cvmfs',
                 mountPropagation='HostToContainer',
                 ))
+
+        if self.check_privilege('slurm'):
+          volumes.append(
+            dict(
+              name='slurm-config',
+              mountPath='/mnt/slurm',
+              readOnly=True,
+            )
+           )
 
       return volumes
 

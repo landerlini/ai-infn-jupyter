@@ -96,4 +96,5 @@ jhubSystemVolumes: ['vkd', 'www']
 # JupyterHub cryptographic key for encrypting sensitive data in the database, can be generated with `openssl rand -hex 32`
 jhubCryptKey: 
 
-
+# Slurm configuration
+slurmConfServer: slurm-controller.slurm:6817
