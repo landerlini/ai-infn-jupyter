@@ -660,7 +660,7 @@ class InfnSpawner(KubeSpawner):
         self.extra_resource_limits = {}
         self.tolerations = [t for t in self.tolerations if t.get('key') != 'virtual-node.interlink/no-schedule']
         self.node_affinity_required = []
-        self.start_as_user = False
+        self.on_virtual_node = False
 
         accelerator = "".join(formdata['gpu'])
         if accelerator in ["none"]:
@@ -718,7 +718,7 @@ class InfnSpawner(KubeSpawner):
           # mesh, and the NFS server squashes root coming from there: start.sh,
           # running as root, cannot even enter the user's home. Such sessions
           # start directly as the user (see start()).
-          self.start_as_user = await self.may_run_on_virtual_node(fpga_data['node_selector'])
+          self.on_virtual_node = await self.may_run_on_virtual_node(fpga_data['node_selector'])
 
           # Pin the pod to nodes of the selected FPGA model (several models may share the resource name)
           self.node_affinity_required = [
@@ -749,7 +749,7 @@ class InfnSpawner(KubeSpawner):
 
         Sessions normally start as root, so that start.sh can rename the user,
         fix the UID and grant sudo before dropping privileges. Sessions that may
-        run on a virtual node start as the NFS user instead (start_as_user):
+        run on a virtual node start as the NFS user instead (on_virtual_node):
         start.sh then skips the root-only setup, and GRANT_SUDO has no effect.
 
         NB_UID, NB_GID and NB_GROUPS are only known here: setup_nfs_user sets
@@ -762,13 +762,17 @@ class InfnSpawner(KubeSpawner):
         if not hasattr(self, '_configured_supplemental_gids'):
           self._configured_supplemental_gids = list(self.supplemental_gids)
           self._configured_extra_annotations = dict(self.extra_annotations)
+          self._configured_start_timeout = self.start_timeout
+          self._configured_http_timeout = self.http_timeout
         if getattr(self, '_home_set_for_user', False):
           self.environment.pop('HOME', None)
           self._home_set_for_user = False
         self.supplemental_gids = list(self._configured_supplemental_gids)
         self.extra_annotations = dict(self._configured_extra_annotations)
+        self.start_timeout = self._configured_start_timeout
+        self.http_timeout = self._configured_http_timeout
 
-        if getattr(self, 'start_as_user', False):
+        if getattr(self, 'on_virtual_node', False):
           username = self.get_user_name()
           group_ids = [
             int(entry.split(':')[0])
@@ -792,6 +796,10 @@ class InfnSpawner(KubeSpawner):
           # WireGuard in a WebSocket over TCP, so the path MTU does not limit it:
           # larger packets mean fewer of them through the user-space hops.
           self.extra_annotations['interlink.eu/wg-mtu'] = str(VIRTUAL_NODE_WG_MTU)
+          # Wait for the pod to run, and then for its server to answer, long
+          # enough to cover the whole offloading sequence
+          self.start_timeout = VIRTUAL_NODE_START_TIMEOUT
+          self.http_timeout = VIRTUAL_NODE_START_TIMEOUT
           self.log.info(
             f"Session of {username} may run on a virtual node: starting as "
             f"{self.environment['NB_UID']}:{self.environment['NB_GID']} "
@@ -1184,6 +1192,13 @@ c.JupyterHub.hub_connect_ip = 'hub.jhub.svc.cluster.local'
 # MTU of the WireGuard mesh for sessions on interLink virtual nodes (the
 # virtual kubelet defaults to 1280). The gateway side has to use the same value.
 VIRTUAL_NODE_WG_MTU = int(os.environ.get("VIRTUAL_NODE_WG_MTU", "1420"))
+
+# Sessions offloaded to an interLink virtual node start far more slowly than
+# local ones: a DIND container is allocated, the mesh downloads its binaries and
+# brings up WireGuard, and only then does the image start. START_TIMEOUT, sized
+# for local pods, makes JupyterHub give up on a session that is still coming up
+# (the pod then keeps running, with no server attached to it in the dashboard).
+VIRTUAL_NODE_START_TIMEOUT = int(os.environ.get("VIRTUAL_NODE_START_TIMEOUT", "600"))
 
 # Copied and adjusted per session by InfnSpawner.start()
 NOTEBOOK_CONTAINER_CONFIG = {

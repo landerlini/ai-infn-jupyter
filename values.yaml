@@ -49,7 +49,7 @@ jhubPrivilegedUsers: "no"
 jhubMetricApiKey:
 
 # jhubStartTimeout is the time in seconds to wait for a user pod to start before considering it failed, used for better handling of slow GPU initialization
-jhubStartTimeout: 120
+jhubStartTimeout: 240
 
 # jhubEnvsSetup is the path to a shell script that will be sourced in the user pods at startup, used for setting up environment variables or other initialization tasks
 jhubEnvsSetup: /envs/setup.sh
