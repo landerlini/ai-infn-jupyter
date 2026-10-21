@@ -108,6 +108,11 @@ JUICEFS_METADATA_DB = os.environ.get("JUICEFS_METADATA_DB", "")
 JUICEFS_FILESYSTEM_NAME = os.environ.get("JUICEFS_FILESYSTEM_NAME", "")
 CVMFS_CLAIM_NAME = os.environ.get("CVMFS_CLAIM_NAME", "")
 
+# Host path volume mounted only in sessions spawned with an FPGA
+FPGA_INPUT_DATA_VOLUME = "fpga-input-data"
+FPGA_INPUT_DATA_HOST_PATH = os.environ.get("FPGA_INPUT_DATA_HOST_PATH", "/data/input_data/AI_INFN")
+FPGA_INPUT_DATA_MOUNT_PATH = os.environ.get("FPGA_INPUT_DATA_MOUNT_PATH", "/data/AI_INFN")
+
 PRIVILEGED_USERS = (os.environ.get("PRIVILEGED_USERS", "no") in ["true", "yes", "y"]) 
 
 STARTUP_SCRIPT = Path(os.environ.get("STARTUP_SCRIPT", "/envs/setup.sh"))
@@ -661,8 +666,9 @@ class InfnSpawner(KubeSpawner):
         self.tolerations = [t for t in self.tolerations if t.get('key') != 'virtual-node.interlink/no-schedule']
         self.node_affinity_required = []
         self.on_virtual_node = False
+        self.is_fpga_session = False
 
-        accelerator = "".join(formdata['gpu'])
+        accelerator ="".join(formdata['gpu'])
         if accelerator in ["none"]:
           self.node_affinity_preferred = [
             _prefer_accelerator(
@@ -699,6 +705,7 @@ class InfnSpawner(KubeSpawner):
 
         elif accelerator.startswith('fpga:'):
           options['fpga'] = True
+          self.is_fpga_session = True
 
           _, model_fpga, n_fpgas = accelerator.split(":")
           fpga_data = {a['name']: a for a in GPU_MODEL_DESCRIPTION if a.get('type') == 'fpga'}.get(model_fpga)
@@ -926,6 +933,14 @@ class InfnSpawner(KubeSpawner):
         self.empty_volume('tmp', size_limit='100Gi'),
       ]
 
+      if getattr(self, 'is_fpga_session', False):
+        volumes.append(
+          dict(
+            name=FPGA_INPUT_DATA_VOLUME,
+            hostPath=dict(path=FPGA_INPUT_DATA_HOST_PATH, type='Directory'),
+          )
+        )
+
       if NFS_SERVER_ADDRESS is not None:
         volumes += [
           self.nfs_volume(f'{username}'),
@@ -993,6 +1008,9 @@ class InfnSpawner(KubeSpawner):
         {"name": "shared-memory", "mountPath": "/dev/shm", "readOnly": False},
         {"name": "tmp", "mountPath": "/tmp", "readOnly": False},
       ]
+
+      if getattr(self, 'is_fpga_session', False):
+        volumes.append({"name": FPGA_INPUT_DATA_VOLUME, "mountPath": FPGA_INPUT_DATA_MOUNT_PATH})
 
       if NFS_SERVER_ADDRESS is not None:
         volumes += [
