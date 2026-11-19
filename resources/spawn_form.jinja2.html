@@ -15,17 +15,15 @@
 <br>
 <p>Compute flavor:</br>
     {% for flavor in flavors %}
-    <input type="radio" name="flavor" id="flavor-{{ flavor.name }}" value="{{ flavor.name }}" {{ "checked=checked" if flavor.default else "" }} {{ "disabled" if not flavor.enabled else "" }}>
+    <input type="radio" name="flavor" id="flavor-{{ flavor.name }}" value="{{ flavor.name }}" {{ "checked=checked" if
+        flavor.default else "" }} {{ "disabled" if not flavor.enabled else "" }}>
     <label for="flavor-{{ flavor.name }}" style="width: 80%; text-weight: normal;">
         {{ flavor.desc }}
         {% if flavor.note %}
-        <font style="padding-left: 10pt; color: #666; font-size: smaller; font-weight: normal; font-style: italic;">{{ flavor.note }}</font>
+        <font style="padding-left: 10pt; color: #666; font-size: smaller; font-weight: normal; font-style: italic;">{{
+            flavor.note }}</font>
         {% endif %}
     </label><br />
     {% endfor %}
 </p>
 <br>
-<p>
-    <input type="checkbox" id="offloading" name="offloading" value="true">
-    <label for="offloading" style="width: 80%; text-weight: normal;">Offloading</label>
-</p>
