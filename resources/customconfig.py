@@ -139,6 +139,9 @@ DEFAULT_JLAB_IMAGES = json.loads(
         '{"Default image": "harbor.cloud.infn.it/testbed-dm/ai-infn:0.1-pre10"}',
     )
 )
+FPGA_FORCED_IMAGE = os.environ.get(
+    "FPGA_FORCED_IMAGE", "quay.io/fpgacourse2025/hackathon2026:0.0.4"
+)
 GPU_MODEL_DESCRIPTION = json.loads(os.environ.get("GPU_MODEL_DESCRIPTION", "[]"))
 CONFIGMAP_MOUNT_PATH = Path(
     os.environ.get(
@@ -715,7 +718,6 @@ class InfnSpawner(KubeSpawner):
         options = {}
         options["img"] = formdata["img"]
         container_image = "".join(formdata["img"])
-        self.image = container_image
 
         options["flavor"] = formdata["flavor"]
         flavor = "".join(formdata["flavor"])
@@ -729,6 +731,12 @@ class InfnSpawner(KubeSpawner):
 
         if flavor_spec is None:
             raise Exception(f"Unknown flavor: {flavor}")
+
+        if flavor_spec["accelerator"] == "fpga":
+            container_image = FPGA_FORCED_IMAGE
+            options["img"] = [container_image]
+
+        self.image = container_image
 
         cpu = str(flavor_spec["cpu"])
         self.cpu_guarantee = 1.0
