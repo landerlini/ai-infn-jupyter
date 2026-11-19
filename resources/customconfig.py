@@ -960,7 +960,7 @@ class InfnSpawner(KubeSpawner):
     def splash_manager(self):
         if not hasattr(self, "_splash_manager"):
             self._splash_manager = SplashManager(
-                NFS_MOUNT_POINT / NFS_VOLUME_PREFIX / "www" / "splash.html"
+                NFS_MOUNT_POINT / "www" / "splash.html"
             )
 
         return self._splash_manager
