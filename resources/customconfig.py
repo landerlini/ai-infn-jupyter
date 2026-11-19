@@ -647,13 +647,24 @@ class InfnSpawner(KubeSpawner):
         container_image = ''.join(formdata['img'])
         self.image = container_image
 
-        options['cpu'] = formdata['cpu']
-        cpu = ''.join(formdata['cpu'])
+        options['flavor'] = formdata['flavor']
+        flavor = ''.join(formdata['flavor'])
+
+        flavor_spec = {
+          'cpu-1c4g': {'cpu': 1, 'mem': '4G', 'accelerator': 'none'},
+          'cpu-2c12g': {'cpu': 2, 'mem': '12G', 'accelerator': 'none'},
+          'gpu-3c16g': {'cpu': 3, 'mem': '16G', 'accelerator': 'gpu'},
+          'fpga-3c16g': {'cpu': 3, 'mem': '16G', 'accelerator': 'fpga'},
+        }.get(flavor)
+
+        if flavor_spec is None:
+          raise Exception(f"Unknown flavor: {flavor}")
+
+        cpu = str(flavor_spec['cpu'])
         self.cpu_guarantee = 1.
         self.cpu_limit = float(cpu)
 
-        options['mem'] = formdata['mem']
-        memory = ''.join(formdata['mem'])
+        memory = flavor_spec['mem']
         self.mem_guarantee = "2G"
         self.mem_limit = memory
 
@@ -668,7 +679,17 @@ class InfnSpawner(KubeSpawner):
         self.on_virtual_node = False
         self.is_fpga_session = False
 
-        accelerator ="".join(formdata['gpu'])
+        accelerator = flavor_spec['accelerator']
+        if accelerator in ['gpu', 'fpga']:
+          accelerator_models = [
+            acc
+            for acc in GPU_MODEL_DESCRIPTION
+            if acc.get('type') == accelerator and acc.get('name') not in ['none']
+          ]
+          if len(accelerator_models) == 0:
+            raise Exception(f"No configured accelerator model for flavor type '{accelerator}'")
+          accelerator = f"{accelerator}:{accelerator_models[0]['name']}:1"
+
         if accelerator in ["none"]:
           self.node_affinity_preferred = [
             _prefer_accelerator(
@@ -1258,20 +1279,63 @@ async def aiinfn_option_form (self):
     )
 
     with open(file_name) as f:
+      gpu_candidates = [
+        acc
+        for acc in accelerators
+        if acc['count'] > 0 and acc['name'] not in ['none'] and acc.get('type') == 'gpu'
+      ]
+      fpga_candidates = [
+        acc
+        for acc in accelerators
+        if acc['count'] > 0 and acc['name'] not in ['none'] and acc.get('type') == 'fpga'
+      ]
+
+      gpu_available = any(acc['avail'] > 0 for acc in gpu_candidates)
+      fpga_available = any(acc['avail'] > 0 for acc in fpga_candidates)
+
+      gpu_note = (
+        f"({sum(acc['avail'] for acc in gpu_candidates)}/{sum(acc['count'] for acc in gpu_candidates)} available)"
+        if gpu_candidates
+        else "(no GPU model configured)"
+      )
+      fpga_note = (
+        f"({sum(acc['avail'] for acc in fpga_candidates)}/{sum(acc['count'] for acc in fpga_candidates)} available)"
+        if fpga_candidates
+        else "(no FPGA model configured)"
+      )
+
       return jinja2.Template(f.read()).render(
         splash_message=self.splash_manager.message(**id_vars),
         **id_vars,
-        cpus=sorted(AVAILABLE_CPU + self.get_group_allowance('cpu')),
-        mem_sizes=sorted(AVAILABLE_MEMORY_GB + self.get_group_allowance('mem_gb')),
-        accelerators=[
+        flavors=[
           dict(
-              type=acc["type"],
-              model=acc['name'],
-              desc=acc.get('description', acc),
-              avail=acc['avail'],
-              tot=acc['count'],
-          )
-          for acc in accelerators if acc['count'] > 0 and acc['name'] not in ['none']
+            name='gpu-3c16g',
+            desc='3 CPU, 16 GB RAM, GPU',
+            enabled=gpu_available,
+            default=gpu_available,
+            note=gpu_note,
+          ),
+          dict(
+            name='cpu-2c12g',
+            desc='2 CPU, 12 GB RAM, CPU-only',
+            enabled=True,
+            default=not gpu_available,
+            note='',
+          ),
+          dict(
+            name='cpu-1c4g',
+            desc='1 CPU, 4 GB RAM, CPU-only',
+            enabled=True,
+            default=False,
+            note='',
+          ),
+          dict(
+            name='fpga-3c16g',
+            desc='3 CPU, 16 GB RAM, FPGA',
+            enabled=fpga_available,
+            default=False,
+            note=fpga_note,
+          ),
         ],
         images = [
           dict(name=v, desc=k) for k, v in DEFAULT_JLAB_IMAGES.items()
