@@ -148,7 +148,7 @@ DEFAULT_JLAB_IMAGES = json.loads(
     )
 )
 FPGA_FORCED_IMAGE = os.environ.get(
-    "FPGA_FORCED_IMAGE", "quay.io/fpgacourse2025/hackathon2026:0.0.5"
+    "FPGA_FORCED_IMAGE", "quay.io/fpgacourse2025/hackathon2026:0.0.6"
 )
 GPU_MODEL_DESCRIPTION = json.loads(os.environ.get("GPU_MODEL_DESCRIPTION", "[]"))
 CONFIGMAP_MOUNT_PATH = Path(
