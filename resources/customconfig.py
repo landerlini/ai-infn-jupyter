@@ -1208,13 +1208,13 @@ class InfnSpawner(KubeSpawner):
                     "mountPath": FPGA_INPUT_DATA_MOUNT_PATH,
                 }
             )
-            volumes.append(
-                {
-                    "name": FPGA_JOVYAN_VOLUME,
-                    "mountPath": FPGA_JOVYAN_MOUNT_PATH,
-                    "readOnly": False,
-                }
-            )
+            # volumes.append(
+            #     {
+            #         "name": FPGA_JOVYAN_VOLUME,
+            #         "mountPath": FPGA_JOVYAN_MOUNT_PATH,
+            #         "readOnly": False,
+            #     }
+            # )
 
         if NFS_SERVER_ADDRESS is not None:
             volumes += [
