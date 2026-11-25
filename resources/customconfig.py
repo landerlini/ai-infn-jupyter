@@ -148,7 +148,7 @@ DEFAULT_JLAB_IMAGES = json.loads(
     )
 )
 FPGA_FORCED_IMAGE = os.environ.get(
-    "FPGA_FORCED_IMAGE", "quay.io/fpgacourse2025/hackathon2026:0.0.8"
+    "FPGA_FORCED_IMAGE", "quay.io/fpgacourse2025/hackathon2026:0.0.9"
 )
 GPU_MODEL_DESCRIPTION = json.loads(os.environ.get("GPU_MODEL_DESCRIPTION", "[]"))
 CONFIGMAP_MOUNT_PATH = Path(
@@ -935,10 +935,10 @@ class InfnSpawner(KubeSpawner):
                 for entry in self.environment.get("NB_GROUPS", "").split(", ")
                 if entry
             ]
-            container_config["securityContext"].update(
-                runAsUser=int(self.environment["NB_UID"]),
-                runAsGroup=int(self.environment["NB_GID"]),
-            )
+            # container_config["securityContext"].update(
+            #     runAsUser=int(self.environment["NB_UID"]),
+            #     runAsGroup=int(self.environment["NB_GID"]),
+            # )
             # users (100) owns the image's writable paths; the project groups own
             # the shared directories, which start.sh can no longer join as root.
             # root (0) can write /etc/passwd, where start.sh adds the entry naming
