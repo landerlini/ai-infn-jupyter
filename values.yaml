@@ -88,7 +88,7 @@ jhubTag:   head
 jhubDefaultJLabImages:
   Stable: "harbor.cloud.infn.it/unpacked/jlab-ai-infn:2.1.2-ai1.5"
   Dev: "ghcr.io/landerlini/jupyter-docker-images/jlab-ai-infn:head"
-  FPGA: "quay.io/fpgacourse2025/hackathon2026:0.0.2"
+  FPGA: "quay.io/fpgacourse2025/hackathon2026:0.0.5"
 
 # Special volumes to be mounted to privileged users
 jhubSystemVolumes: ['vkd', 'www']

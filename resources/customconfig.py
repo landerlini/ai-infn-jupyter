@@ -124,6 +124,14 @@ FPGA_INPUT_DATA_MOUNT_PATH = os.environ.get(
     "FPGA_INPUT_DATA_MOUNT_PATH", "/data/AI_INFN"
 )
 
+# Scratch /home/jovyan for sessions spawned with an FPGA: the image no longer
+# ships it (it was root-owned, hence read-only), but these sessions need it
+# writable. emptyDir is world-writable whatever UID the session runs as, and
+# goes away with the pod.
+FPGA_JOVYAN_VOLUME = "fpga-jovyan-home"
+FPGA_JOVYAN_MOUNT_PATH = "/home/jovyan"
+FPGA_JOVYAN_SIZE_LIMIT = os.environ.get("FPGA_JOVYAN_SIZE_LIMIT", "20Gi")
+
 PRIVILEGED_USERS = os.environ.get("PRIVILEGED_USERS", "no") in ["true", "yes", "y"]
 
 STARTUP_SCRIPT = Path(os.environ.get("STARTUP_SCRIPT", "/envs/setup.sh"))
@@ -1109,6 +1117,9 @@ class InfnSpawner(KubeSpawner):
                     hostPath=dict(path=FPGA_INPUT_DATA_HOST_PATH, type="Directory"),
                 )
             )
+            volumes.append(
+                self.empty_volume(FPGA_JOVYAN_VOLUME, size_limit=FPGA_JOVYAN_SIZE_LIMIT)
+            )
 
         if NFS_SERVER_ADDRESS is not None:
             volumes += [
@@ -1195,6 +1206,13 @@ class InfnSpawner(KubeSpawner):
                 {
                     "name": FPGA_INPUT_DATA_VOLUME,
                     "mountPath": FPGA_INPUT_DATA_MOUNT_PATH,
+                }
+            )
+            volumes.append(
+                {
+                    "name": FPGA_JOVYAN_VOLUME,
+                    "mountPath": FPGA_JOVYAN_MOUNT_PATH,
+                    "readOnly": False,
                 }
             )
 
