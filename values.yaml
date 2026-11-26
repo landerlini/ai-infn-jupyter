@@ -98,3 +98,6 @@ jhubCryptKey:
 
 # Slurm configuration
 slurmConfServer: slurm-controller.slurm:6817
+
+# DCGM exporter namespace for GPU monitoring
+dcgmExporterNamespace: infra
