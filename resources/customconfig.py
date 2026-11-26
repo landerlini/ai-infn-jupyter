@@ -194,6 +194,10 @@ EXTENDED_RESOURCES = json.loads(
     os.environ.get("EXTENDED_RESOURCES", '["ai.infn.it/fuse"]')
 )
 
+EVICTABILITY_PRIORITY_THRESHOLD = int(
+    os.environ.get("EVICTABILITY_PRIORITY_THRESHOLD", "0")
+)
+
 ## Slurm
 SLURM_CONF_SERVER = os.environ.get("SLURM_CONF_SERVER", "slurm-controller.slurm:6817")
 
@@ -786,7 +790,9 @@ class InfnSpawner(KubeSpawner):
                     continue
                 for acc in matching_models.get(pod.spec.node_name, []):
                     ext_res = acc.get("extended_resource", default_extended_resource)
-                    acc["count"] += _pod_resource_count(pod, ext_res)
+                    priority = getattr(pod.spec, "priority", 0)
+                    if priority >= EVICTABILITY_PRIORITY_THRESHOLD:
+                        acc["count"] += _pod_resource_count(pod, ext_res)
 
         else:
             raise KeyError(f"Unexpected status_key {status_key}")
