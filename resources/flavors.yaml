@@ -22,6 +22,14 @@ gpu-3c16g:
   tier: 1
   public: true
 
+gpu-3c16g-medphys:
+  desc: "🧬 Joint Fusion in Medical Physics (3 CPU, 16 GB RAM, GPU)"
+  cpu: 3
+  mem: "16G"
+  accelerator: gpu
+  tier: 1
+  public: true
+
 fpga-3c16g:
   desc: "🚀 4D Tracking on FPGA with NA62 data (3 CPU, 16 GB RAM, FPGA)"
   cpu: 3
