@@ -1203,13 +1203,14 @@ class InfnSpawner(KubeSpawner):
             self.empty_volume("tmp", size_limit="100Gi"),
         ]
 
-        # if getattr(self, "is_fpga_session", False):
-        #     volumes.append(
-        #         dict(
-        #             name=FPGA_INPUT_DATA_VOLUME,
-        #             hostPath=dict(path=FPGA_INPUT_DATA_HOST_PATH, type="Directory"),
-        #         )
-        #     )
+        if ALLOW_HOST_PATHS_ON_REMOTE:
+            if getattr(self, "is_fpga_session", False):
+                volumes.append(
+                    dict(
+                        name=FPGA_INPUT_DATA_VOLUME,
+                        hostPath=dict(path=FPGA_INPUT_DATA_HOST_PATH, type="Directory"),
+                    )
+                )
 
         if NFS_SERVER_ADDRESS is not None:
             volumes += [
