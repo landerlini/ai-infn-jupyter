@@ -819,8 +819,6 @@ class InfnSpawner(KubeSpawner):
 
     async def options_from_form(self, formdata):
         options = {}
-        options["img"] = formdata["img"]
-        container_image = "".join(formdata["img"])
 
         options["flavor"] = formdata["flavor"]
         flavor = "".join(formdata["flavor"])
@@ -830,16 +828,18 @@ class InfnSpawner(KubeSpawner):
             "cpu-2c12g": {"cpu": 2, "mem": "12G", "accelerator": "none"},
             "gpu-3c16g": {"cpu": 3, "mem": "16G", "accelerator": "gpu"},
             "fpga-3c16g": {"cpu": 3, "mem": "16G", "accelerator": "fpga"},
+            "fpga-3c16g-local": {"cpu": 3, "mem": "16G", "accelerator": "none"},
         }.get(flavor)
 
         if flavor_spec is None:
             raise Exception(f"Unknown flavor: {flavor}")
 
-        if flavor_spec["accelerator"] == "fpga":
-            container_image = FPGA_FORCED_IMAGE
-            options["img"] = [container_image]
+        if flavor in ["fpga-3c16g", "fpga-3c16g-local"]:
+            self.image = FPGA_FORCED_IMAGE
+        else:
+            self.image = "".join(formdata["img"])
 
-        self.image = container_image
+        options["img"] = [self.image]
 
         cpu = str(flavor_spec["cpu"])
         self.cpu_guarantee = 1.0
