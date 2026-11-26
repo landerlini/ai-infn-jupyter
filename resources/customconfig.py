@@ -815,6 +815,8 @@ class InfnSpawner(KubeSpawner):
         for acc in accelerators:
             acc["occupied"] = allocated.get(acc["name"], 0)
             acc["avail"] = max(0, acc["count"] - acc["occupied"])
+
+        logging.debug("[GPU-DISCOVERY] Available accelerators: %s", accelerators)
         return accelerators
 
     async def options_from_form(self, formdata):
