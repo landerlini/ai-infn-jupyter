@@ -164,7 +164,7 @@ CONFIGMAP_MOUNT_PATH = Path(
 
 FLAVORS = json.loads(os.environ.get("FLAVORS", "{}"))
 if not FLAVORS:
-  raise Exception("No flavors defined in the environment variable FLAVORS")
+    raise Exception("No flavors defined in the environment variable FLAVORS")
 
 # Metrics custom token
 METRICS_API_KEY = os.environ.get("JUPYTERHUB_METRICS_API_KEY")
@@ -1628,15 +1628,19 @@ async def aiinfn_option_form(self):
             splash_message=self.splash_manager.message(**id_vars),
             **id_vars,
             flavors=[
-              dict(
-                  name=fname,
-                  desc=f['desc'],
-                  enabled=True,
-                  default=f.get('default', False),
-                  note=gpu_note[f.get('tier', 1)] if f.get('accelerator') in ['gpu'] else fpga_note if f.get('accelerator') in ['fpga'] else "",
-              )
+                dict(
+                    name=fname,
+                    desc=f["desc"],
+                    enabled=True,
+                    default=f.get("default", False),
+                    note=gpu_note[f.get("tier", 1)]
+                    if f.get("accelerator") in ["gpu"]
+                    else fpga_note
+                    if f.get("accelerator") in ["fpga"]
+                    else "",
+                )
                 for fname, f in FLAVORS.items()
-            ]
+            ],
             images=[dict(name=v, desc=k) for k, v in DEFAULT_JLAB_IMAGES.items()],
         )
 
