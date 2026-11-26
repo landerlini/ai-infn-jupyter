@@ -148,3 +148,6 @@ spec:
 
         # Slurm configuration
         SLURM_CONF_SERVER: {{ .Values.slurmConfServer | default "slurm-controller.slurm:6817" }}
+
+        ALLOW_HOST_PATHS_ON_REMOTE: yes
+

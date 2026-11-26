@@ -30,6 +30,9 @@ import asyncio
 import shutil
 import copy
 import string
+import re
+import time
+from collections import defaultdict
 
 from typing import Dict, Collection, Literal
 
@@ -124,14 +127,6 @@ FPGA_INPUT_DATA_MOUNT_PATH = os.environ.get(
     "FPGA_INPUT_DATA_MOUNT_PATH", "/data/AI_INFN"
 )
 
-# Scratch /home/jovyan for sessions spawned with an FPGA: the image no longer
-# ships it (it was root-owned, hence read-only), but these sessions need it
-# writable. emptyDir is world-writable whatever UID the session runs as, and
-# goes away with the pod.
-# FPGA_JOVYAN_VOLUME = "fpga-jovyan-home"
-# FPGA_JOVYAN_MOUNT_PATH = "/home/jovyan"
-# FPGA_JOVYAN_SIZE_LIMIT = os.environ.get("FPGA_JOVYAN_SIZE_LIMIT", "20Gi")
-
 PRIVILEGED_USERS = os.environ.get("PRIVILEGED_USERS", "no") in ["true", "yes", "y"]
 
 STARTUP_SCRIPT = Path(os.environ.get("STARTUP_SCRIPT", "/envs/setup.sh"))
@@ -150,7 +145,16 @@ DEFAULT_JLAB_IMAGES = json.loads(
 FPGA_FORCED_IMAGE = os.environ.get(
     "FPGA_FORCED_IMAGE", "quay.io/fpgacourse2025/hackathon2026:0.0.9"
 )
+ALLOW_HOST_PATHS_ON_REMOTE = os.environ.get(
+    "ALLOW_HOST_PATHS_ON_REMOTE", ""
+).lower() in ["true", "yes", "y"]
+
 GPU_MODEL_DESCRIPTION = json.loads(os.environ.get("GPU_MODEL_DESCRIPTION", "[]"))
+DCGM_EXPORTER_NAMESPACE = "gpu-operator"
+DCGM_EXPORTER_LABEL = "app=nvidia-dcgm-exporter"
+DCGM_METRICS_PORT = 9400
+LABELS_RE = re.compile(r"\{([^}]*)\}\s+([-+eE0-9.]+)")
+SPLIT_RE = re.compile(r'(\w+)=(".*?"|[^,]+)')
 CONFIGMAP_MOUNT_PATH = Path(
     os.environ.get(
         "CONFIGMAP_MOUNT_PATH",
@@ -553,11 +557,129 @@ def _container_resource_count(container, resource_name: str):
     """
     Internal. Number of units of an extended resource requested by a container.
     """
-    if container.resources.limits is not None:
-        return int(container.resources.limits.get(resource_name, 0))
-    elif container.resources.requests is not None:
-        return int(container.resources.requests.get(resource_name, 0))
-    return 0
+    if container.resources is None:
+        return 0
+    requests = container.resources.requests or {}
+    limits = container.resources.limits or {}
+    return int(requests.get(resource_name, limits.get(resource_name, 0)))
+
+
+def _pod_resource_count(pod, resource_name: str):
+    """Effective scheduling request, including init containers and native sidecars."""
+    app_count = sum(
+        _container_resource_count(container, resource_name)
+        for container in pod.spec.containers
+    )
+    sidecar_count = 0
+    init_count = 0
+    for container in pod.spec.init_containers or []:
+        count = _container_resource_count(container, resource_name)
+        if getattr(container, "restart_policy", None) == "Always":
+            sidecar_count += count
+            init_count = max(init_count, sidecar_count)
+        else:
+            init_count = max(init_count, sidecar_count + count)
+    return max(app_count + sidecar_count, init_count)
+
+
+def _accelerator_node_selector(accelerator) -> Dict[str, str]:
+    """Use configured labels; retain the product-label fallback for older catalogs."""
+    return accelerator.get(
+        "node_selector", {"nvidia.com/gpu.product": accelerator["name"]}
+    )
+
+
+async def _exporter_ips_async():
+    async with kubernetes_api() as k:
+        pods = await k.list_namespaced_pod(
+            namespace=DCGM_EXPORTER_NAMESPACE,
+            label_selector=DCGM_EXPORTER_LABEL,
+            field_selector="status.phase=Running",
+        )
+    return [p.status.pod_ip for p in pods.items if p.status.pod_ip]
+    # TODO: Here we should add the constraint to skip reserved nodes
+
+
+async def list_exporter_ips():
+    try:
+        return await _exporter_ips_async()
+    except Exception as error:
+        logging.warning("[GPU-DISCOVERY] %s", error)
+        return []
+
+
+def fetch_metrics(ip, retries=3, delay=0.5):
+    url = f"http://{ip}:{DCGM_METRICS_PORT}/metrics"
+    for _ in range(retries):
+        try:
+            response = requests.get(url, timeout=2)
+            if response.ok:
+                return response.text
+        except Exception:
+            pass
+        time.sleep(delay)
+    return ""
+
+
+def _labels(txt):
+    return {k: v.strip('"') for k, v in SPLIT_RE.findall(txt)}
+
+
+def parse_usage(text):
+    # Keep the parsing and device accounting identical to corso-monaco.
+    entity = {}
+    usage = defaultdict(lambda: {"total": 0, "used": 0})
+    for line in text.splitlines():
+        if line.startswith("#") or "{" not in line:
+            continue
+        metric, _ = line.split("{", 1)
+        m = LABELS_RE.search(line)
+        if not m:
+            continue
+        lbl, val = m.groups()
+        labels = _labels(lbl)
+        value = float(val)
+        model = labels.get("modelName")
+        gpu_id = labels.get("gpu")
+        mig_id = labels.get("GPU_I_ID")
+        profile = labels.get("GPU_I_PROFILE")
+        if not model or not gpu_id:
+            continue
+        key, name = (
+            ((labels.get("UUID"), mig_id), f"{model} ({profile})")
+            if mig_id
+            else ((gpu_id,), model)
+        )
+        ent = entity.setdefault(key, {"name": name, "used": False})
+        if any(k in labels for k in ("container", "pod", "namespace")):
+            ent["used"] = True
+        elif metric == "DCGM_FI_DEV_GPU_UTIL" and value > 0:
+            ent["used"] = True
+
+    for e in entity.values():
+        usage[e["name"]]["total"] += 1
+        usage[e["name"]]["used"] += 1 if e["used"] else 0
+    return usage
+
+
+def current_gpu_inventory(ips):
+    inv = defaultdict(lambda: {"total": 0, "used": 0})
+    for ip in ips:
+        txt = fetch_metrics(ip)
+        if not txt:
+            continue
+        for n, v in parse_usage(txt).items():
+            inv[n]["total"] += v["total"]
+            inv[n]["used"] += v["used"]
+    return [{"name": n, **v} for n, v in inv.items()]
+
+
+async def _dcgm_inventory():
+    ips = await list_exporter_ips()
+    logging.info("[GPU-DISCOVERY] exporter IPs: %s", ips)
+    inventory = await asyncio.to_thread(current_gpu_inventory, ips)
+    logging.info("[GPU-DISCOVERY] GPU inventory: %s", json.dumps(inventory))
+    return inventory
 
 
 ################################################################################
@@ -609,6 +731,7 @@ class InfnSpawner(KubeSpawner):
         status_key: Literal["allocated", "allocatable", "capacity"] = "allocatable",
         default_extended_resource: str = "nvidia.com/gpu",
         groups: Collection[str] = tuple(),
+        dcgm_inventory=None,
     ):
         """
         Complete the list of known accelerators with the number of
@@ -617,10 +740,10 @@ class InfnSpawner(KubeSpawner):
         Return the list defined in GPU_MODEL_DESCRIPTION with an additional
         `count` key reporting the number of each known accelerator model.
 
-        The model `name` must match from the `nvidia.com/gpu.product` label.
+        GPU totals and usage come directly from DCGM.
+        FPGA totals use node resources and allocations use JHUB_NAMESPACE pods.
 
-        Requires additional ClusterRole and ClusterRoleBinding beyond
-        the jupyterhub helm chart to work.
+        DCGM discovery uses the gpu-operator pod-reader.
         """
 
         async with kubernetes_api() as k:
@@ -629,98 +752,70 @@ class InfnSpawner(KubeSpawner):
         # Copy the list
         return_list = [dict(**acc, count=0) for acc in GPU_MODEL_DESCRIPTION]
 
+        visibile_nodes = [
+            node
+            for node in nodes.items
+            if not InfnSpawner.is_node_reserved(node, groups)
+        ]
+        matching_models = {}
+        for node in visibile_nodes:
+            matching_models[node.metadata.name] = [
+                acc
+                for acc in return_list
+                if acc.get("type") == "fpga"
+                and _node_matches(node, _accelerator_node_selector(acc))
+            ]
+
         if status_key in ["allocatable", "capacity"]:
             for node in nodes.items:
-                if InfnSpawner.is_node_reserved(node, groups):
-                    continue
-
-                # FPGAs are matched through their node_selector and may be exposed by virtual nodes
                 node_resources = getattr(node.status, status_key, None) or {}
-                for return_item in return_list:
-                    if return_item.get("type") == "fpga" and _node_matches(
-                        node, return_item.get("node_selector", {})
-                    ):
-                        return_item["count"] += int(
-                            node_resources.get(return_item["extended_resource"], 0)
-                        )
-
-                if InfnSpawner.is_node_virtual(node, groups):
-                    continue
-
-                accelerator = node.metadata.labels.get(
-                    "nvidia.com/gpu.product",
-                    node.metadata.labels.get("accelerator", "none"),
-                )
-
-                if accelerator != "none":
-                    if hasattr(node.status, status_key):
-                        for return_item in return_list:
-                            if (
-                                accelerator == return_item["name"]
-                                and return_item.get("type") != "fpga"
-                            ):
-                                ext_res = return_item.get(
-                                    "extended_resource", default_extended_resource
-                                )
-                                node_count = getattr(node.status, status_key).get(
-                                    ext_res, 0
-                                )
-                                return_item["count"] += int(node_count)
+                for acc in matching_models.get(node.metadata.name, []):
+                    ext_res = acc.get("extended_resource", default_extended_resource)
+                    acc["count"] += int(node_resources.get(ext_res, 0))
 
         elif status_key in ["allocated"]:
             async with kubernetes_api() as k:
                 pods = await k.list_namespaced_pod(namespace=JHUB_NAMESPACE)
 
-            node_dict = {node.metadata.name: node for node in nodes.items}
-
             for pod in pods.items:
-                node = node_dict.get(pod.spec.node_name)
-                if node is None:
+                if pod.status.phase in ["Succeeded", "Failed"]:
                     continue
-                if InfnSpawner.is_node_reserved(node, groups):
-                    continue
-
-                for return_item in return_list:
-                    if return_item.get("type") == "fpga" and _node_matches(
-                        node, return_item.get("node_selector", {})
-                    ):
-                        return_item["count"] += sum(
-                            _container_resource_count(
-                                container, return_item["extended_resource"]
-                            )
-                            for container in pod.spec.containers
-                        )
-
-                accelerator = node.metadata.labels.get(
-                    "nvidia.com/gpu.product",
-                    node.metadata.labels.get("accelerator", "none"),
-                )
-                if accelerator != "none":
-                    for return_item in return_list:
-                        if (
-                            accelerator == return_item["name"]
-                            and return_item.get("type") != "fpga"
-                        ):
-                            ext_res = return_item.get(
-                                "extended_resource", default_extended_resource
-                            )
-                            for container in pod.spec.containers:
-                                if container.resources.limits is not None:
-                                    container_count = container.resources.limits.get(
-                                        ext_res, 0
-                                    )
-                                elif container.resources.requests is not None:
-                                    container_count = container.resources.requests.get(
-                                        ext_res, 0
-                                    )
-                                else:
-                                    container_count = 0
-                                return_item["count"] += int(container_count)
+                for acc in matching_models.get(pod.spec.node_name, []):
+                    ext_res = acc.get("extended_resource", default_extended_resource)
+                    acc["count"] += _pod_resource_count(pod, ext_res)
 
         else:
             raise KeyError(f"Unexpected status_key {status_key}")
 
+        if dcgm_inventory is None:
+            dcgm_inventory = await _dcgm_inventory()
+        for acc in return_list:
+            if acc.get("type") != "gpu":
+                continue
+            dcgm_names = acc.get("dcgm_names", [acc["name"]])
+            readings = [row for row in dcgm_inventory if row["name"] in dcgm_names]
+            key = "used" if status_key == "allocated" else "total"
+            acc["count"] = sum(row[key] for row in readings)
+
         return return_list
+
+    @staticmethod
+    async def get_available_accelerators(groups: Collection[str] = tuple()):
+        """Use one DCGM snapshot for GPU totals and usage"""
+        inventory = await _dcgm_inventory()
+        accelerators = await InfnSpawner.get_accelerators(
+            groups=groups, dcgm_inventory=inventory
+        )
+        allocated = {
+            acc["name"]: acc["count"]
+            for acc in await InfnSpawner.get_accelerators(
+                "allocated", groups=groups, dcgm_inventory=inventory
+            )
+        }
+        for acc in accelerators:
+            acc["occupied"] = allocated.get(acc["name"], 0)
+            acc["avail"] = max(0, acc["count"] - acc["occupied"])
+        return accelerators
 
     async def options_from_form(self, formdata):
         options = {}
@@ -766,6 +861,10 @@ class InfnSpawner(KubeSpawner):
             if t.get("key") != "virtual-node.interlink/no-schedule"
         ]
         self.node_affinity_required = []
+        self.node_affinity_preferred = []
+        self.extra_pod_config = {
+            k: v for k, v in self.extra_pod_config.items() if k != "runtimeClassName"
+        }
         self.on_virtual_node = False
         self.is_fpga_session = False
 
@@ -773,12 +872,14 @@ class InfnSpawner(KubeSpawner):
         if accelerator in ["gpu", "fpga"]:
             accelerator_models = [
                 acc
-                for acc in GPU_MODEL_DESCRIPTION
-                if acc.get("type") == accelerator and acc.get("name") not in ["none"]
+                for acc in await self.get_available_accelerators(self.get_user_groups())
+                if acc.get("type") == accelerator
+                and acc.get("name") not in ["none"]
+                and acc["avail"] > 0
             ]
             if len(accelerator_models) == 0:
                 raise Exception(
-                    f"No configured accelerator model for flavor type '{accelerator}'"
+                    f"No available accelerator model for flavor type '{accelerator}'"
                 )
             accelerator = f"{accelerator}:{accelerator_models[0]['name']}:1"
 
@@ -813,14 +914,9 @@ class InfnSpawner(KubeSpawner):
                 }
             )
 
-            self.node_affinity_preferred = [
-                _prefer_accelerator(
-                    gpu_data.get(
-                        "node_selector",
-                        {"nvidia.com/gpu.operator": gpu_data.get("name")},
-                    ),
-                    weight=100,
-                )
+            # Different GPU models may share nvidia.com/gpu: require the selected model.
+            self.node_affinity_required = [
+                _prefer_accelerator(_accelerator_node_selector(gpu_data))["preference"]
             ]
 
             self.extra_pod_config.update(
@@ -1110,16 +1206,13 @@ class InfnSpawner(KubeSpawner):
             self.empty_volume("tmp", size_limit="100Gi"),
         ]
 
-        if getattr(self, "is_fpga_session", False):
-            volumes.append(
-                dict(
-                    name=FPGA_INPUT_DATA_VOLUME,
-                    hostPath=dict(path=FPGA_INPUT_DATA_HOST_PATH, type="Directory"),
-                )
-            )
-            # volumes.append(
-            #     self.empty_volume(FPGA_JOVYAN_VOLUME, size_limit=FPGA_JOVYAN_SIZE_LIMIT)
-            # )
+        # if getattr(self, "is_fpga_session", False):
+        #     volumes.append(
+        #         dict(
+        #             name=FPGA_INPUT_DATA_VOLUME,
+        #             hostPath=dict(path=FPGA_INPUT_DATA_HOST_PATH, type="Directory"),
+        #         )
+        #     )
 
         if NFS_SERVER_ADDRESS is not None:
             volumes += [
@@ -1201,20 +1294,14 @@ class InfnSpawner(KubeSpawner):
             {"name": "tmp", "mountPath": "/tmp", "readOnly": False},
         ]
 
-        if getattr(self, "is_fpga_session", False):
-            volumes.append(
-                {
-                    "name": FPGA_INPUT_DATA_VOLUME,
-                    "mountPath": FPGA_INPUT_DATA_MOUNT_PATH,
-                }
-            )
-            # volumes.append(
-            #     {
-            #         "name": FPGA_JOVYAN_VOLUME,
-            #         "mountPath": FPGA_JOVYAN_MOUNT_PATH,
-            #         "readOnly": False,
-            #     }
-            # )
+        if ALLOW_HOST_PATHS_ON_REMOTE:
+            if getattr(self, "is_fpga_session", False):
+                volumes.append(
+                    {
+                        "name": FPGA_INPUT_DATA_VOLUME,
+                        "mountPath": FPGA_INPUT_DATA_MOUNT_PATH,
+                    }
+                )
 
         if NFS_SERVER_ADDRESS is not None:
             volumes += [
@@ -1488,18 +1575,7 @@ c.KubeSpawner.start_timeout = START_TIMEOUT
 async def aiinfn_option_form(self):
     file_name = os.path.join(CONFIGMAP_MOUNT_PATH / "spawn_form.jinja2.html")
     groups = self.get_user_groups()
-    accelerators = await self.get_accelerators(
-        "allocatable", "nvidia.com/gpu", groups=groups
-    )
-    allocated_accelerators = {
-        acc["name"]: acc["count"]
-        for acc in await self.get_accelerators(
-            "allocated", "nvidia.com/gpu", groups=groups
-        )
-    }
-
-    for acc in accelerators:
-        acc["avail"] = acc["count"] - allocated_accelerators.get(acc["name"], 0)
+    accelerators = await self.get_available_accelerators(groups=groups)
 
     logging.info("Groups")
     logging.info([group.name for group in self.user.groups])
@@ -1530,12 +1606,12 @@ async def aiinfn_option_form(self):
         fpga_available = any(acc["avail"] > 0 for acc in fpga_candidates)
 
         gpu_note = (
-            f"({sum(acc['avail'] for acc in gpu_candidates)}/{sum(acc['count'] for acc in gpu_candidates)} available)"
+            f"({sum(acc['occupied'] for acc in gpu_candidates)}/{sum(acc['count'] for acc in gpu_candidates)} occupied)"
             if gpu_candidates
-            else "(no GPU model configured)"
+            else "(no GPU metrics available)"
         )
         fpga_note = (
-            f"({sum(acc['avail'] for acc in fpga_candidates)}/{sum(acc['count'] for acc in fpga_candidates)} available)"
+            f"({sum(acc['count'] - acc['avail'] for acc in fpga_candidates)}/{sum(acc['count'] for acc in fpga_candidates)} in Milano Bicocca occupied)"
             if fpga_candidates
             else "(no FPGA model configured)"
         )
@@ -1548,14 +1624,14 @@ async def aiinfn_option_form(self):
                     name="gpu-3c16g",
                     desc="🧬 Joint Fusion with GNNs in Medical Physics (3 CPU, 16 GB RAM, GPU)",
                     enabled=gpu_available,
-                    default=gpu_available,
+                    default=False,
                     note=gpu_note,
                 ),
                 dict(
                     name="gpu-3c16g",
                     desc="🧮 Integrating Dynamical Systems with DNNs (3 CPU, 16 GB RAM, GPU)",
                     enabled=gpu_available,
-                    default=gpu_available,
+                    default=False,
                     note=gpu_note,
                 ),
                 dict(
@@ -1567,16 +1643,23 @@ async def aiinfn_option_form(self):
                 ),
                 dict(
                     name="fpga-3c16g",
-                    desc="🗺️ 4D Tracking on FPGA with NA62 data (3 CPU, 16 GB RAM, FPGA)",
+                    desc="🚀 4D Tracking on FPGA with NA62 data (3 CPU, 16 GB RAM, FPGA)",
                     enabled=fpga_available,
                     default=False,
                     note=fpga_note,
                 ),
                 dict(
+                    name="fpga-3c16g-local",
+                    desc="📍 4D Tracking with NA62 data (3 CPU, 16 GB RAM, CPU-only)",
+                    enabled=True,
+                    default=False,
+                    note="Local deployment",
+                ),
+                dict(
                     name="cpu-1c4g",
                     desc="📂 File-system access, only (1 CPU, 4 GB RAM, CPU-only)",
                     enabled=True,
-                    default=False,
+                    default=True,
                     note="",
                 ),
             ],
