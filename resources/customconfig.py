@@ -884,7 +884,7 @@ class InfnSpawner(KubeSpawner):
                 for acc in await self.get_available_accelerators(self.get_user_groups())
                 if acc.get("type") == accelerator
                 and acc.get("name") not in ["none"]
-                and acc["avail"] > 0
+                # and acc["avail"] > 0
                 and acc.get("tier", 0) == tier
             ]
             if len(accelerator_models) == 0:
