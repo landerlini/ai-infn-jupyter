@@ -36,7 +36,7 @@ OAuthName: "INFN Cloud"
 OAuthEndpoint: https://iam.cloud.infn.it
 
 # jhubOAuthGroups is the space-separated list of IAM groups whose members are allowed to log in to JupyterHub, e.g. "users/ai-infn users/other-group"
-jhubOAuthGroups: users/ai-infn
+jhubOAuthGroups: users/ai-infn users/ai-infn-hackathon
 
 # jhubAdminGroups is the space-separated list of IAM groups whose members are allowed to log in to JupyterHub as administrators, e.g. "admins/ai-infn admins/other-group"
 # IMPORTANT: members of these groups gain privilege to access ALL other users' data. Users must have received a nominee from their Director to be eligible.
