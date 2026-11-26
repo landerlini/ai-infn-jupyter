@@ -1640,6 +1640,7 @@ async def aiinfn_option_form(self):
                     else "",
                 )
                 for fname, f in FLAVORS.items()
+                if f["public"] or fname in self.get_group_allowed_flavors()
             ],
             images=[dict(name=v, desc=k) for k, v in DEFAULT_JLAB_IMAGES.items()],
         )
