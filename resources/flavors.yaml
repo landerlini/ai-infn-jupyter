@@ -29,7 +29,7 @@ fpga-3c16g:
   accelerator: fpga
   tier: 0
   public: true
-  image: "quay.io/fpgacourse2025/hackathon2026:0.0.4"
+  image: "quay.io/fpgacourse2025/hackathon2026:0.0.8"
 
 fpga-3c16g-local:
   desc: "📍 4D Tracking with NA62 data (3 CPU, 16 GB RAM, CPU-only)"
@@ -38,7 +38,7 @@ fpga-3c16g-local:
   accelerator: none
   tier: 0
   public: true
-  image: "quay.io/fpgacourse2025/hackathon2026:0.0.4"
+  image: "quay.io/fpgacourse2025/hackathon2026:0.0.8"
 
 gpu-8c32g:
   desc: "🖥️ High-performance GPU (8 CPU, 32 GB RAM, GPU)"
