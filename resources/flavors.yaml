@@ -1,0 +1,49 @@
+cpu-1c4g:
+  desc: "📂 File-system access, only (1 CPU, 4 GB RAM, CPU-only)"
+  cpu: 1
+  mem: "4G"
+  accelerator: none
+  tier: 0
+  public: true
+
+cpu-2c12g:
+  desc: "⚛️ Quantum Machine Learning (2 CPU, 12 GB RAM, CPU-only)"
+  cpu: 2
+  mem: "12G"
+  accelerator: none
+  tier: 0
+  public: true
+
+gpu-3c16g:
+  desc: "🧮 Integrating Dynamical Systems with DNNs (3 CPU, 16 GB RAM, GPU)"
+  cpu: 3
+  mem: "16G"
+  accelerator: gpu
+  tier: 1
+  public: true
+
+fpga-3c16g:
+  desc: "🚀 4D Tracking on FPGA with NA62 data (3 CPU, 16 GB RAM, FPGA)"
+  cpu: 3
+  mem: "16G"
+  accelerator: fpga
+  tier: 0
+  public: true
+  image: "quay.io/fpgacourse2025/hackathon2026:0.0.4"
+
+fpga-3c16g-local:
+  desc: "📍 4D Tracking with NA62 data (3 CPU, 16 GB RAM, CPU-only)"
+  cpu: 3
+  mem: "16G"
+  accelerator: none
+  tier: 0
+  public: true
+  image: "quay.io/fpgacourse2025/hackathon2026:0.0.4"
+
+gpu-8c32g:
+  desc: "🖥️ High-performance GPU (8 CPU, 32 GB RAM, GPU)"
+  cpu: 8
+  mem: "32G"
+  accelerator: gpu
+  tier: 2
+  public: false

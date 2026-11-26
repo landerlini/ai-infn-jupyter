@@ -17,7 +17,8 @@
     {% for flavor in flavors %}
     <input type="radio" name="flavor" id="flavor-{{ flavor.name }}" value="{{ flavor.name }}" {{ "checked=checked" if
         flavor.default else "" }} {{ "disabled" if not flavor.enabled else "" }}>
-    <label for="flavor-{{ flavor.name }}" style="width: 80%; text-weight: normal;">
+    <label for="flavor-{{ flavor.name }}" style="width: 80%; text-weight: normal;"
+        title="Flavor name: {{ flavor.name }}">
         {{ flavor.desc }}
         {% if flavor.note %}
         <font style="padding-left: 10pt; color: #666; font-size: smaller; font-weight: normal; font-style: italic;">{{

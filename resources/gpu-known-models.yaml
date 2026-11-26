@@ -7,6 +7,7 @@ models:
     memory_gb: 0
     preference_weight: 100
     type: 
+    tier: 0
 
   - name: NVIDIA-A100-80GB-PCIe-MIG-1g.10gb
     short_name: mig-1g.10gb
@@ -17,6 +18,9 @@ models:
     preference_weight: 9
     type: gpu
     extended_resource: nvidia.com/gpu
+    dcgm_names:
+     - NVIDIA A100 80GB PCIe (MIG 1g.10gb)
+    tier: 1
 
   - name: NVIDIA-A100-PCIE-40GB-MIG-1g.5gb
     short_name: mig-1g.5gb
@@ -27,6 +31,9 @@ models:
     preference_weight: 9
     type: gpu
     extended_resource: nvidia.com/gpu
+    dcgm_names:
+     - NVIDIA A100 40GB PCIe (MIG 1g.5gb)
+    tier: 1
 
   - name: Tesla-T4
     short_name: t4
@@ -37,6 +44,9 @@ models:
     preference_weight: 8
     type: gpu
     extended_resource: nvidia.com/gpu
+    dcgm_names:
+     - Tesla T4
+    tier: 2
 
   - name: Quadro-RTX-5000
     short_name: rtx5000
@@ -47,6 +57,9 @@ models:
     preference_weight: 7
     type: gpu
     extended_resource: nvidia.com/gpu
+    dcgm_names:
+     - Quadro RTX 5000
+    tier: 2
 
 
   - name: NVIDIA-A30
@@ -58,6 +71,9 @@ models:
     preference_weight: 6
     type: gpu
     extended_resource: nvidia.com/gpu
+    dcgm_names:
+     - NVIDIA A30
+    tier: 3
 
   - name: NVIDIA-A100-80GB-PCIe-MIG-2g.20gb
     short_name: mig-2g.20gb
@@ -68,6 +84,9 @@ models:
     preference_weight: 6
     type: gpu
     extended_resource: nvidia.com/gpu
+    dcgm_names:
+     - NVIDIA A100 80GB PCIe (MIG 2g.20gb)
+    tier: 3
 
   - name: NVIDIA-A100-80GB-PCIe-MIG-3g.30gb
     short_name: mig-3g.30gb
@@ -78,6 +97,9 @@ models:
     preference_weight: 5
     type: gpu
     extended_resource: nvidia.com/gpu
+    dcgm_names:
+     - NVIDIA A100 80GB PCIe (MIG 3g.30gb)
+    tier: 3
 
   - name: NVIDIA-A100-80GB-PCIe-MIG-4g.40gb
     short_name: mig-4g.40gb
@@ -88,6 +110,9 @@ models:
     preference_weight: 3
     type: gpu
     extended_resource: nvidia.com/gpu
+    dcgm_names:
+     - NVIDIA A100 80GB PCIe (MIG 4g.40gb)
+    tier: 3
 
   - name: NVIDIA-A100-80GB-PCIe-MIG-7g.80gb
     short_name: a100
@@ -98,6 +123,9 @@ models:
     preference_weight: 2
     type: gpu
     extended_resource: nvidia.com/gpu
+    dcgm_names:
+     - NVIDIA A100 80GB PCIe (MIG 7g.80gb)
+    tier: 4
 
   - name: u55c
     short_name: u55c
@@ -108,4 +136,6 @@ models:
     preference_weight: 1
     type: fpga
     extended_resource: xilinx.com/fpga
+    dcgm_names:
+     - AMD-Xilinx U55c
 

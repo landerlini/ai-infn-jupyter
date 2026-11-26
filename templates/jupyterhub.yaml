@@ -132,6 +132,7 @@ spec:
 
         JUPYTERHUB_CRYPT_KEY: {{ .Values.jhubCryptKey | required "jhubCryptKey required" }}
         GPU_MODEL_DESCRIPTION: {{ ( .Files.Get "resources/gpu-known-models.yaml" | fromYaml).models | toJson | squote }}
+        FLAVORS: {{ ( .Files.Get "resources/flavors.yaml" | fromYaml).flavors | toJson | squote }}
 
         # Virtual Kubelet Dispatcher configuration
         ENABLE_VKD: "yes"
@@ -150,5 +151,5 @@ spec:
         SLURM_CONF_SERVER: {{ .Values.slurmConfServer | default "slurm-controller.slurm:6817" }}
 
         ALLOW_HOST_PATHS_ON_REMOTE: "yes"
-        DCGM_EXPORTER_NAMESPACE: infra
+        DCGM_EXPORTER_NAMESPACE: {{ .Values.dcgmExporterNamespace | default "gpu-operator" }}
 

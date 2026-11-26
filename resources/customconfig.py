@@ -162,6 +162,10 @@ CONFIGMAP_MOUNT_PATH = Path(
     )
 )
 
+FLAVORS = json.loads(os.environ.get("FLAVORS", "{}"))
+if not FLAVORS:
+  raise Exception("No flavors defined in the environment variable FLAVORS")
+
 # Metrics custom token
 METRICS_API_KEY = os.environ.get("JUPYTERHUB_METRICS_API_KEY")
 
@@ -825,22 +829,18 @@ class InfnSpawner(KubeSpawner):
         options["flavor"] = formdata["flavor"]
         flavor = "".join(formdata["flavor"])
 
-        flavor_spec = {
-            "cpu-1c4g": {"cpu": 1, "mem": "4G", "accelerator": "none"},
-            "cpu-2c12g": {"cpu": 2, "mem": "12G", "accelerator": "none"},
-            "gpu-3c16g": {"cpu": 3, "mem": "16G", "accelerator": "gpu"},
-            "fpga-3c16g": {"cpu": 3, "mem": "16G", "accelerator": "fpga"},
-            "fpga-3c16g-local": {"cpu": 3, "mem": "16G", "accelerator": "none"},
-        }.get(flavor)
+        flavor_spec = FLAVORS.get(flavor)
 
         if flavor_spec is None:
             raise Exception(f"Unknown flavor: {flavor}")
 
-        if flavor in ["fpga-3c16g", "fpga-3c16g-local"]:
-            self.image = FPGA_FORCED_IMAGE
-        else:
-            self.image = "".join(formdata["img"])
+        if (
+            not flavor_spec.get("public", False)
+            and flavor not in self.get_group_allowed_flavors()
+        ):
+            raise Exception(f"Flavor '{flavor}' is not allowed for any of your groups")
 
+        self.image = flavor_spec.get("image", "".join(formdata["img"]))
         options["img"] = [self.image]
 
         cpu = str(flavor_spec["cpu"])
@@ -872,12 +872,14 @@ class InfnSpawner(KubeSpawner):
 
         accelerator = flavor_spec["accelerator"]
         if accelerator in ["gpu", "fpga"]:
+            tier = flavor_spec.get("tier", 0)
             accelerator_models = [
                 acc
                 for acc in await self.get_available_accelerators(self.get_user_groups())
                 if acc.get("type") == accelerator
                 and acc.get("name") not in ["none"]
                 and acc["avail"] > 0
+                and acc.get("tier", 0) == tier
             ]
             if len(accelerator_models) == 0:
                 raise Exception(
@@ -1106,22 +1108,15 @@ class InfnSpawner(KubeSpawner):
         )
         return result
 
-    def get_group_allowance(self, resource):
-        str_allowances = [
-            g.properties.get(resource)
-            for g in self.user.groups
-            if resource in g.properties.keys()
-        ]
+    def get_group_allowed_flavors(self):
         ret = []
-        for allowance in str_allowances:
-            try:
-                ret.append(int(allowance))
-            except ValueError:
-                logging.error(
-                    f"Failed allowance validation for {resource}: invalid value {allowance}."
+        for g in self.user.groups:
+            if "flavors" in g.properties:
+                ret.extend(
+                    [str(flavor) for flavor in g.properties.get("flavors").split(",")]
                 )
 
-        return sorted(list(set(ret)))
+        return list(set(ret))
 
     #################################################################################
     #### VOLUMES
@@ -1590,11 +1585,15 @@ async def aiinfn_option_form(self):
 
     with open(file_name) as f:
         gpu_candidates = [
-            acc
-            for acc in accelerators
-            if acc["count"] > 0
-            and acc["name"] not in ["none"]
-            and acc.get("type") == "gpu"
+            [
+                acc
+                for acc in accelerators
+                if acc["count"] > 0
+                and acc["name"] not in ["none"]
+                and acc.get("type") == "gpu"
+                and acc.get("tier", 0) == tier
+            ]
+            for tier in range(10)
         ]
         fpga_candidates = [
             acc
@@ -1604,14 +1603,21 @@ async def aiinfn_option_form(self):
             and acc.get("type") == "fpga"
         ]
 
-        gpu_available = any(acc["avail"] > 0 for acc in gpu_candidates)
+        gpu_available = [
+            any(acc["avail"] > 0 for acc in tiered_gpus)
+            for tiered_gpus in gpu_candidates
+        ]
         fpga_available = any(acc["avail"] > 0 for acc in fpga_candidates)
 
-        gpu_note = (
-            f"({sum(acc['occupied'] for acc in gpu_candidates)}/{sum(acc['count'] for acc in gpu_candidates)} occupied)"
-            if gpu_candidates
-            else "(no GPU metrics available)"
-        )
+        gpu_note = [
+            (
+                f"({sum(acc['occupied'] for acc in tiered_gpus)}/{sum(acc['count'] for acc in tiered_gpus)} occupied)"
+                if tiered_gpus
+                else "(no GPU metrics available)"
+            )
+            for tiered_gpus in gpu_candidates
+        ]
+
         fpga_note = (
             f"➡️ Milano ({sum(acc['count'] - acc['avail'] for acc in fpga_candidates)}/{sum(acc['count'] for acc in fpga_candidates)} occupied)"
             if fpga_candidates
@@ -1622,49 +1628,15 @@ async def aiinfn_option_form(self):
             splash_message=self.splash_manager.message(**id_vars),
             **id_vars,
             flavors=[
-                dict(
-                    name="gpu-3c16g",
-                    desc="🧬 Joint Fusion with GNNs in Medical Physics (3 CPU, 16 GB RAM, GPU)",
-                    enabled=gpu_available,
-                    default=False,
-                    note=gpu_note,
-                ),
-                dict(
-                    name="gpu-3c16g",
-                    desc="🧮 Integrating Dynamical Systems with DNNs (3 CPU, 16 GB RAM, GPU)",
-                    enabled=gpu_available,
-                    default=False,
-                    note=gpu_note,
-                ),
-                dict(
-                    name="cpu-2c12g",
-                    desc="⚛️ Quantum Machine Learning (2 CPU, 12 GB RAM, CPU-only)",
-                    enabled=True,
-                    default=not gpu_available,
-                    note="",
-                ),
-                dict(
-                    name="fpga-3c16g",
-                    desc="🚀 4D Tracking on FPGA with NA62 data (3 CPU, 16 GB RAM, FPGA)",
-                    enabled=fpga_available,
-                    default=False,
-                    note=fpga_note,
-                ),
-                dict(
-                    name="fpga-3c16g-local",
-                    desc="📍 4D Tracking with NA62 data (3 CPU, 16 GB RAM, CPU-only)",
-                    enabled=True,
-                    default=False,
-                    note="Local deployment",
-                ),
-                dict(
-                    name="cpu-1c4g",
-                    desc="📂 File-system access, only (1 CPU, 4 GB RAM, CPU-only)",
-                    enabled=True,
-                    default=True,
-                    note="",
-                ),
-            ],
+              dict(
+                  name=fname,
+                  desc=f['desc'],
+                  enabled=True,
+                  default=f.get('default', False),
+                  note=gpu_note[f.get('tier', 1)] if f.get('accelerator') in ['gpu'] else fpga_note if f.get('accelerator') in ['fpga'] else "",
+              )
+                for fname, f in FLAVORS.items()
+            ]
             images=[dict(name=v, desc=k) for k, v in DEFAULT_JLAB_IMAGES.items()],
         )
 
