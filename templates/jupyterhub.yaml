@@ -132,7 +132,7 @@ spec:
 
         JUPYTERHUB_CRYPT_KEY: {{ .Values.jhubCryptKey | required "jhubCryptKey required" }}
         GPU_MODEL_DESCRIPTION: {{ ( .Files.Get "resources/gpu-known-models.yaml" | fromYaml).models | toJson | squote }}
-        FLAVORS: {{ ( .Files.Get "resources/flavors.yaml" | fromYaml).flavors | toJson | squote }}
+        FLAVORS: {{ ( .Files.Get "resources/flavors.yaml" | fromYaml) | toJson | squote }}
 
         # Virtual Kubelet Dispatcher configuration
         ENABLE_VKD: "yes"
