@@ -1611,7 +1611,7 @@ async def aiinfn_option_form(self):
             else "(no GPU metrics available)"
         )
         fpga_note = (
-            f"({sum(acc['count'] - acc['avail'] for acc in fpga_candidates)}/{sum(acc['count'] for acc in fpga_candidates)} in Milano Bicocca occupied)"
+            f"➡️ Milano ({sum(acc['count'] - acc['avail'] for acc in fpga_candidates)}/{sum(acc['count'] for acc in fpga_candidates)} occupied)"
             if fpga_candidates
             else "(no FPGA model configured)"
         )
