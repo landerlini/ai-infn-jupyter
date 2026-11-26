@@ -150,7 +150,7 @@ ALLOW_HOST_PATHS_ON_REMOTE = os.environ.get(
 ).lower() in ["true", "yes", "y"]
 
 GPU_MODEL_DESCRIPTION = json.loads(os.environ.get("GPU_MODEL_DESCRIPTION", "[]"))
-DCGM_EXPORTER_NAMESPACE = "gpu-operator"
+DCGM_EXPORTER_NAMESPACE = os.environ.get("DCGM_EXPORTER_NAMESPACE", "gpu-operator")
 DCGM_EXPORTER_LABEL = "app=nvidia-dcgm-exporter"
 DCGM_METRICS_PORT = 9400
 LABELS_RE = re.compile(r"\{([^}]*)\}\s+([-+eE0-9.]+)")
