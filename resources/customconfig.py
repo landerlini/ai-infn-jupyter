@@ -833,18 +833,20 @@ class InfnSpawner(KubeSpawner):
         options = {}
 
         options["flavor"] = formdata["flavor"]
-        flavor = "".join(formdata["flavor"])
+        self.flavor = "".join(formdata["flavor"])
 
-        flavor_spec = FLAVORS.get(flavor)
+        flavor_spec = FLAVORS.get(self.flavor)
 
         if flavor_spec is None:
-            raise Exception(f"Unknown flavor: {flavor}")
+            raise Exception(f"Unknown flavor: {self.flavor}")
 
         if (
             not flavor_spec.get("public", False)
-            and flavor not in self.get_group_allowed_flavors()
+            and self.flavor not in self.get_group_allowed_flavors()
         ):
-            raise Exception(f"Flavor '{flavor}' is not allowed for any of your groups")
+            raise Exception(
+                f"Flavor '{self.flavor}' is not allowed for any of your groups"
+            )
 
         self.image = flavor_spec.get("image", "".join(formdata["img"]))
         options["img"] = [self.image]
@@ -874,7 +876,6 @@ class InfnSpawner(KubeSpawner):
             k: v for k, v in self.extra_pod_config.items() if k != "runtimeClassName"
         }
         self.on_virtual_node = False
-        self.is_fpga_session = False
 
         accelerator = flavor_spec["accelerator"]
         if accelerator in ["gpu", "fpga"]:
@@ -937,7 +938,6 @@ class InfnSpawner(KubeSpawner):
 
         elif accelerator.startswith("fpga:"):
             options["fpga"] = True
-            self.is_fpga_session = True
 
             _, model_fpga, n_fpgas = accelerator.split(":")
             fpga_data = {
@@ -1210,11 +1210,20 @@ class InfnSpawner(KubeSpawner):
         ]
 
         if ALLOW_HOST_PATHS_ON_REMOTE:
-            if getattr(self, "is_fpga_session", False):
+            if getattr(self, "flavor", "") == "fpga-3c16g":
                 volumes.append(
                     dict(
                         name=FPGA_INPUT_DATA_VOLUME,
                         hostPath=dict(path=FPGA_INPUT_DATA_HOST_PATH, type="Directory"),
+                    )
+                )
+            else:
+                volumes.append(
+                    dict(
+                        name="opttools",
+                        emptyDir=dict(
+                            sizeLimit="32Mi",
+                        ),
                     )
                 )
 
@@ -1299,11 +1308,18 @@ class InfnSpawner(KubeSpawner):
         ]
 
         if ALLOW_HOST_PATHS_ON_REMOTE:
-            if getattr(self, "is_fpga_session", False):
+            if getattr(self, "flavor", "") == "fpga-3c16g":
                 volumes.append(
                     {
                         "name": FPGA_INPUT_DATA_VOLUME,
                         "mountPath": FPGA_INPUT_DATA_MOUNT_PATH,
+                    }
+                )
+            else:
+                volumes.append(
+                    {
+                        "name": "opttools",
+                        "mountPath": "/opt/tools",
                     }
                 )
 
